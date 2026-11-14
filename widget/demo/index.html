@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Snag widget demo host</title>
+    <style>
+      /* Deliberately hostile host CSS: none of this may reach inside the widget. */
+      * { font-family: "Comic Sans MS", cursive !important; color: #c026d3 !important; box-sizing: content-box !important; }
+      button { all: unset; background: hotpink !important; padding: 20px !important; border: 4px dashed lime !important; }
+      body { line-height: 3; letter-spacing: 3px; padding: 24px; }
+      .tools { display: flex; gap: 12px; flex-wrap: wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>Demo host app (POS)</h1>
+    <p>Hostile global CSS on purpose. Press <kbd>Alt+B</kbd> or use the floating button. Generate telemetry first:</p>
+    <div class="tools">
+      <button id="err">console.error</button>
+      <button id="throw">throw Error</button>
+      <button id="f500">fetch → 500</button>
+      <button id="f404">XHR → 404</button>
+      <button id="route">pushState /orders/42</button>
+    </div>
+
+    <script>
+      document.getElementById('err').onclick = () => console.error('Payment gateway timeout', { order: 42 });
+      document.getElementById('throw').onclick = () => { throw new Error('Cannot read properties of undefined (reading "total")'); };
+      document.getElementById('f500').onclick = () => fetch('http://localhost:8080/api/v1/does-not-exist?token=secret').catch(() => {});
+      document.getElementById('f404').onclick = () => { const x = new XMLHttpRequest(); x.open('GET', '/missing.json?session=abc'); x.send(); };
+      document.getElementById('route').onclick = () => history.pushState({}, '', '/orders/42?customer=jane');
+    </script>
+    <script
+      src="http://localhost:8080/widget.min.js"
+      data-project-key="pk_demo_0000000000000000000000000000"
+      data-api="http://localhost:8080"
+      data-app-version="2.4.1-demo"
+      async
+    ></script>
+  </body>
+</html>

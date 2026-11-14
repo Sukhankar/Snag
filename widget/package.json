@@ -1,0 +1,21 @@
+{
+  "name": "@snag/widget",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Snag embeddable issue reporter (Preact + closed Shadow DOM)",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "tsc --noEmit && vite build && node scripts/size.mjs",
+    "typecheck": "tsc --noEmit",
+    "demo": "vite demo --port 5173 --strictPort"
+  },
+  "dependencies": {
+    "preact": "10.29.8"
+  },
+  "devDependencies": {
+    "terser": "5.51.2",
+    "typescript": "5.9.3",
+    "vite": "8.3.8"
+  }
+}

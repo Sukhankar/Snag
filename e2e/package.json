@@ -1,0 +1,14 @@
+{
+  "name": "@snag/e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser E2E suites. Needs the server (8080), widget demo host (5173) and dashboard (3000) running.",
+  "scripts": {
+    "widget": "mkdir -p screenshots && node widget.mjs",
+    "dashboard": "mkdir -p screenshots && node dashboard.mjs",
+    "users": "mkdir -p screenshots && node users.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.65.1"
+  }
+}

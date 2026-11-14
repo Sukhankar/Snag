@@ -1,0 +1,38 @@
+# Local / single-host deployment:  cp .env.example .env && docker compose up --build
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: snag
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: snag
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snag"]
+      interval: 2s
+      retries: 30
+
+  server:
+    build: { context: ., dockerfile: server/Dockerfile }
+    depends_on: { postgres: { condition: service_healthy } }
+    environment:
+      DATABASE_URL: postgres://snag:${POSTGRES_PASSWORD}@postgres:5432/snag?sslmode=disable
+      SNAG_OWNER_NAME: ${SNAG_OWNER_NAME:-Owner}
+      SNAG_OWNER_EMAIL: ${SNAG_OWNER_EMAIL:?set in .env}
+      SNAG_OWNER_PASSWORD: ${SNAG_OWNER_PASSWORD:?set in .env}
+      SNAG_ADMIN_TOKEN: ${SNAG_ADMIN_TOKEN:-}
+      SNAG_DEMO_PROJECT_KEY: ${SNAG_DEMO_PROJECT_KEY:-}
+      SNAG_DEMO_ORIGINS: ${SNAG_DEMO_ORIGINS:-}
+      SNAG_CREATE_PER_MINUTE: ${SNAG_CREATE_PER_MINUTE:-10}
+    ports: ["8080:8080"]
+
+  dashboard:
+    build: ./dashboard
+    depends_on: [server]
+    environment:
+      SNAG_API_URL: http://server:8080
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:

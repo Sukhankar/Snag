@@ -1,0 +1,61 @@
+# Local environment; commit only reviewed example templates.
+.env
+.env.*
+!.env.example
+
+# Credentials and private keys
+secrets/
+.secrets/
+credentials/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+.npmrc
+.netrc
+
+# Dependencies and generated builds
+node_modules/
+.next/
+dist/
+build/
+out/
+coverage/
+.cache/
+.turbo/
+*.tsbuildinfo
+/server/bin/
+*.test
+*.prof
+
+# Local databases, volume mounts, backups and uploads
+pgdata/
+postgres-data/
+db-data/
+volumes/
+/backups/
+/uploads/
+*.db
+*.db-*
+*.sqlite*
+*.dump
+*.sql.gz
+
+# Logs and test artifacts
+*.log
+logs/
+/e2e/screenshots/
+playwright-report/
+test-results/
+blob-report/
+
+# Local editor and OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
