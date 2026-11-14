@@ -19,6 +19,13 @@ export function Account() {
           <h1 className="text-lg font-semibold">My account</h1>
         </header>
 
+        {me.must_change_password && (
+          <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            <strong className="block">Choose your own password to continue.</strong>
+            You signed in with a temporary password set by an administrator. Set a new one below to start using Snag.
+          </p>
+        )}
+
         <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
             <dt className="text-zinc-500">Name</dt>
@@ -53,6 +60,7 @@ export function Account() {
               setNext('');
               setConfirmPw('');
               setMsg({ ok: true, text: 'Password changed. Your other devices have been signed out.' });
+              if (me.must_change_password) window.location.href = '/';
             } catch (err) {
               setMsg({ ok: false, text: (err as Error).message });
             } finally {

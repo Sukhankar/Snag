@@ -149,49 +149,54 @@ func (r *WidgetRepo) GetTicket(ctx context.Context, projectID, token, code strin
 	return d, rows.Err()
 }
 
-// AddClientMessage appends a public client reply (plus optional attachments) to one of the
-// reporter's own tickets. Closed tickets reject replies with ErrConflict.
-func (r *WidgetRepo) AddClientMessage(ctx context.Context, projectID, token, code, body string, atts []NewAttachment) (Audience, WidgetMessage, error) {
-	var aud Audience
-	var m WidgetMessage
+// AddClientMessage appends a reporter follow-up. A reply on a resolved ticket reopens it
+// (status back to triaged) and is recorded in the activity log; reopened reports that.
+func (r *WidgetRepo) AddClientMessage(ctx context.Context, projectID, token, code, body string, atts []NewAttachment) (aud Audience, m WidgetMessage, reopened bool, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return aud, m, err
+		return aud, m, false, err
 	}
 	defer rollback(ctx, tx)
 
 	var status string
+	var email *string
 	err = tx.QueryRow(ctx, `
-		SELECT id, ticket_code, project_id, reporter_token, status
+		SELECT id, ticket_code, project_id, reporter_token, status, reporter_email
 		FROM tickets
 		WHERE project_id = $1 AND reporter_token = $2 AND ticket_code = $3
 		FOR UPDATE`, projectID, token, code,
-	).Scan(&aud.TicketID, &aud.Code, &aud.ProjectID, &aud.ReporterToken, &status)
+	).Scan(&aud.TicketID, &aud.Code, &aud.ProjectID, &aud.ReporterToken, &status, &email)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return aud, m, ErrNotFound
+		return aud, m, false, ErrNotFound
 	}
 	if err != nil {
-		return aud, m, err
+		return aud, m, false, err
 	}
 	if status == "closed" {
-		return aud, m, ErrConflict
+		return aud, m, false, ErrConflict
 	}
 
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO ticket_messages (ticket_id, author_type, body, is_internal)
-		VALUES ($1, 'client', $2, FALSE)
-		RETURNING id, author_type, body, created_at`, aud.TicketID, body,
+		INSERT INTO ticket_messages (ticket_id, author_type, author_id, body, is_internal)
+		VALUES ($1, 'client', $2, $3, FALSE)
+		RETURNING id, author_type, body, created_at`, aud.TicketID, email, body,
 	).Scan(&m.ID, &m.AuthorType, &m.Body, &m.CreatedAt); err != nil {
-		return aud, m, err
+		return aud, m, false, err
 	}
 	if err := insertAttachments(ctx, tx, aud.TicketID, m.ID, atts); err != nil {
-		return aud, m, err
+		return aud, m, false, err
 	}
-	// A client reply on a resolved ticket re-opens it for triage.
+	reopened = status == "resolved"
+	// Always touch the row so updated_at reflects the new activity.
 	if _, err := tx.Exec(ctx, `
 		UPDATE tickets SET status = CASE WHEN status = 'resolved' THEN 'triaged' ELSE status END
 		WHERE id = $1`, aud.TicketID); err != nil {
-		return aud, m, err
+		return aud, m, false, err
 	}
-	return aud, m, tx.Commit(ctx)
+	if reopened {
+		if err := recordReopen(ctx, tx, aud.TicketID); err != nil {
+			return aud, m, false, err
+		}
+	}
+	return aud, m, reopened, tx.Commit(ctx)
 }

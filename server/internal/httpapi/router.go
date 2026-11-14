@@ -98,6 +98,9 @@ func (s *Server) Routes(ctx context.Context) http.Handler {
 		r.With(need("projects.manage")).Post("/projects", s.adminCreateProject)
 		r.With(need("projects.manage")).Patch("/projects/{id}", s.adminPatchProject)
 		r.With(need("teams.manage")).Post("/teams", s.adminCreateTeam)
+		r.With(need("teams.manage")).Patch("/teams/{id}", s.adminPatchTeam)
+		r.With(need("teams.manage")).Delete("/teams/{id}", s.adminDeleteTeam)
+		r.With(view).Get("/reports/amc", s.adminAMCReport)
 
 		r.With(need("users.manage")).Get("/users", s.adminListUsers)
 		r.With(need("users.manage")).Post("/users", s.adminCreateUser)

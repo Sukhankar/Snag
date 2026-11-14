@@ -34,5 +34,19 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
     ports: ["3000:3000"]
 
+  # Public website and docs: static files behind a hardened, non-root nginx.
+  # For production set SITE_URL=https://your-domain in .env (enables HSTS, indexing and the sitemap).
+  website:
+    build:
+      context: ./website
+      args:
+        SITE_URL: ${SITE_URL:-http://localhost:4180}
+    ports: ["${WEBSITE_PORT:-4180}:8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
 volumes:
   pgdata:

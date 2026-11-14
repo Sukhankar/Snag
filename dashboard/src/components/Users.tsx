@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { api, generatePassword } from '@/lib/client';
 import { relTime } from '@/lib/format';
 import type { Role, User } from '@/lib/types';
@@ -28,6 +28,7 @@ export function Users() {
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
   const [credentials, setCredentials] = useState<{ title: string; email: string; password: string } | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
 
   useEffect(() => {
     api.users().then(setUsers, (e) => setError(e.message));
@@ -106,7 +107,8 @@ export function Users() {
                 const editable = canEdit(u);
                 const self = u.id === me.id;
                 return (
-                  <tr key={u.id} className={u.is_active ? '' : 'opacity-60'}>
+                  <Fragment key={u.id}>
+                  <tr className={u.is_active ? '' : 'opacity-60'}>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2.5">
                         <span className={`grid size-8 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${u.is_owner ? 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300'}`}>
@@ -152,11 +154,19 @@ export function Users() {
                       >
                         {u.is_active ? 'Active' : 'Deactivated'}
                       </span>
+                      {u.must_change_password && u.is_active && (
+                        <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-px text-[11px] font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" title="Signs in with a temporary password and must choose a new one">
+                          Temporary password
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 text-[12px] text-zinc-500">{u.last_login_at ? relTime(u.last_login_at) + ' ago' : 'Never'}</td>
                     <td className="px-3 py-2.5">
                       {editable && (
                         <div className="flex justify-end gap-1.5">
+                          <button className="btn" aria-expanded={editing === u.id} onClick={() => setEditing((x) => (x === u.id ? null : u.id))}>
+                            Edit
+                          </button>
                           {!self && (
                             <button className="btn" onClick={() => resetPassword(u)}>
                               Reset password
@@ -179,6 +189,23 @@ export function Users() {
                       )}
                     </td>
                   </tr>
+                  {editing === u.id && (
+                    <tr>
+                      <td colSpan={5} className="bg-zinc-50 px-3 py-3 dark:bg-zinc-900/60">
+                        <EditUser
+                          user={u}
+                          onCancel={() => setEditing(null)}
+                          onSave={(patch) =>
+                            run(async () => {
+                              replace(await api.patchUser(u.id, patch));
+                              setEditing(null);
+                            })
+                          }
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -274,7 +301,7 @@ function CredentialsCard({ title, email, password, onClose }: { title: string; e
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-emerald-900 dark:text-emerald-200">{title}</p>
-          <p className="mt-0.5 text-[12px] text-emerald-800 dark:text-emerald-300">Share these credentials securely — the password is not shown again.</p>
+          <p className="mt-0.5 text-[12px] text-emerald-800 dark:text-emerald-300">Share these credentials securely — the password is not shown again. They will be asked to choose their own password when they first sign in.</p>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 font-mono text-[12px]">
             <dt className="text-zinc-500">Email</dt>
             <dd>{email}</dd>
@@ -300,5 +327,36 @@ function CredentialsCard({ title, email, password, onClose }: { title: string; e
         </div>
       </div>
     </div>
+  );
+}
+
+function EditUser({ user, onSave, onCancel }: { user: User; onSave: (patch: { name?: string; email?: string }) => void; onCancel: () => void }) {
+  const [name, setName] = useState(user.name);
+  const [email, setEmail] = useState(user.email);
+  return (
+    <form
+      className="flex flex-wrap items-end gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const patch: { name?: string; email?: string } = {};
+        if (name.trim() !== user.name) patch.name = name.trim();
+        if (email.trim().toLowerCase() !== user.email) patch.email = email.trim();
+        if (Object.keys(patch).length) onSave(patch);
+        else onCancel();
+      }}
+    >
+      <label className="space-y-1">
+        <span className="label">Full name</span>
+        <input className="input" required maxLength={100} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+      </label>
+      <label className="space-y-1">
+        <span className="label">Email (used to sign in)</span>
+        <input className="input" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+      </label>
+      <button className="btn-primary">Save</button>
+      <button type="button" className="btn" onClick={onCancel}>
+        Cancel
+      </button>
+    </form>
   );
 }

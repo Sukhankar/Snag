@@ -95,7 +95,8 @@ func (s *Server) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, r, err)
 		return
 	}
-	u, err := s.users.CreateUser(r.Context(), email, name, hash, req.RoleID, false)
+	// The admin chose this password, so the new user must replace it at first sign-in.
+	u, err := s.users.CreateUser(r.Context(), email, name, hash, req.RoleID, false, true)
 	if err == store.ErrConflict {
 		writeErr(w, http.StatusConflict, "conflict", "a user with this email already exists")
 		return
@@ -155,7 +156,7 @@ func (s *Server) adminPatchUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Email != nil {
 		e := strings.ToLower(clean(*req.Email))
-		if !emailRe.MatchString(e) {
+		if !emailRe.MatchString(e) || len(e) > 254 {
 			writeErr(w, http.StatusUnprocessableEntity, "validation_failed", "invalid email")
 			return
 		}
@@ -178,6 +179,9 @@ func (s *Server) adminPatchUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		patch.PasswordHash = &h
+		// A password set by someone else is temporary; your own choice is not.
+		mustChange := target.ID != caller.ID
+		patch.MustChange = &mustChange
 	}
 	var keep []byte
 	if target.ID == caller.ID {

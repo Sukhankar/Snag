@@ -65,8 +65,8 @@ func setPassword(args []string) error {
 	if err != nil {
 		return err
 	}
-	active := true
-	if _, err := users.UpdateUser(ctx, u.ID, store.UserPatch{PasswordHash: &hash, IsActive: &active}, nil); err != nil {
+	active, mustChange := true, false
+	if _, err := users.UpdateUser(ctx, u.ID, store.UserPatch{PasswordHash: &hash, IsActive: &active, MustChange: &mustChange}, nil); err != nil {
 		return err
 	}
 	fmt.Printf("password updated for %s (%s); all their sessions were signed out\n", u.Email, u.Name)

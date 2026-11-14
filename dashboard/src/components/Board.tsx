@@ -8,7 +8,7 @@ import type { Project, Status, TicketSummary } from '@/lib/types';
 import { STATUSES } from '@/lib/types';
 import { PriorityDot, ScopeChip } from './badges';
 import { useCan } from './me';
-import { useSnagEvents } from './stream';
+import { useSnagEvents, useStreamGeneration } from './stream';
 
 // Kanban over root tickets (duplicates ride along with their parent). Drag a card to
 // change status; resolving a parent cascades to its duplicates server-side.
@@ -25,6 +25,7 @@ export function Board() {
   const [error, setError] = useState('');
   const [truncated, setTruncated] = useState<Status[]>([]);
   const canMove = useCan()('tickets.update');
+  const generation = useStreamGeneration();
 
   useEffect(() => {
     api.projects().then(setProjects, () => {});
@@ -42,7 +43,7 @@ export function Board() {
       (e) => e.name !== 'AbortError' && setError(e.message),
     );
     return () => ctrl.abort();
-  }, [projectId]);
+  }, [projectId, generation]);
 
   useSnagEvents((e) => {
     if (e.type === 'message.created') return;

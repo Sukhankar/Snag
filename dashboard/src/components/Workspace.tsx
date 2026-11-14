@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, type TicketPatch } from '@/lib/client';
-import { bytes, CATEGORY_LABEL, fullTime, PRIORITY_LABEL, STATUS_LABEL } from '@/lib/format';
-import type { AttachmentMeta, DirectoryEntry, Scope, Team, TicketDetail, TicketSummary } from '@/lib/types';
+import { bytes, CATEGORY_LABEL, fullTime, PRIORITY_LABEL, relTime, SCOPE_LABEL, STATUS_LABEL } from '@/lib/format';
+import type { AttachmentMeta, DirectoryEntry, Scope, Team, TicketDetail, TicketEvent, TicketSummary } from '@/lib/types';
 import { CATEGORIES, PRIORITIES, STATUSES } from '@/lib/types';
 import { PriorityDot, StatusBadge } from './badges';
 import { Conversation } from './Conversation';
 import { Lightbox } from './Lightbox';
 import { useCan } from './me';
-import { useSnagEvents } from './stream';
+import { useSnagEvents, useStreamGeneration } from './stream';
 import { Telemetry } from './Telemetry';
 
 // Split-view triage: left = metadata, AMC classification, dedupe, attachments, telemetry;
@@ -29,6 +29,7 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
   const can = useCan();
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const generation = useStreamGeneration();
 
   const load = useCallback(
     (signal?: AbortSignal) =>
@@ -42,7 +43,7 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
     const ctrl = new AbortController();
     load(ctrl.signal);
     return () => ctrl.abort();
-  }, [load]);
+  }, [load, generation]);
 
   useEffect(() => {
     api.teams().then(setTeams, () => {});
@@ -50,10 +51,15 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
   }, []);
 
   useSnagEvents((e) => {
-    if (e.type === 'message.created' && e.data.ticket_id === id) {
+    if (e.type === 'message.created' && e.data.ticket_id === id && e.data.message.author_type === 'client') {
+      load(); // reporter replies can carry screenshots and reopen the ticket
+    } else if (e.type === 'message.created' && e.data.ticket_id === id) {
       setT((cur) => (cur && !cur.messages.some((m) => m.id === e.data.message.id) ? { ...cur, messages: [...cur.messages, e.data.message] } : cur));
     } else if (e.type === 'ticket.updated') {
-      if (e.data.id === id) setT((cur) => (cur ? { ...cur, ...e.data } : cur));
+      if (e.data.id === id) {
+        setT((cur) => (cur ? { ...cur, ...e.data } : cur));
+        load(); // refresh the activity log with the change
+      }
       // A duplicate changed (linked, cascaded, reopened) → refresh the dedupe panel.
       else if (e.data.parent_ticket_id === id || t?.duplicates.some((d) => d.id === e.data.id)) load();
     }
@@ -68,7 +74,7 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
     try {
       const summary = await api.patchTicket(id, patch);
       setT((cur) => (cur ? { ...cur, ...summary } : cur));
-      if ('parent_ticket_id' in patch || ('status' in patch && t.duplicates.length)) load();
+      load(); // duplicates, cascades and the activity log
     } catch (e) {
       setT(before);
       setError((e as Error).message);
@@ -216,6 +222,8 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
             <h2 className="label mb-1.5">Auto-captured telemetry</h2>
             <Telemetry telemetry={t.telemetry} />
           </section>
+
+          <Activity events={t.events} />
         </div>
       </div>
 
@@ -402,6 +410,62 @@ function Dedupe({
           {notice && <p className="mt-1 text-[12px] text-zinc-500">{notice}</p>}
         </div>
       )}
+    </section>
+  );
+}
+
+// ---- activity log ----
+
+const FIELD_LABEL: Record<TicketEvent['field'], string> = {
+  status: 'status',
+  priority: 'priority',
+  category: 'category',
+  scope_class: 'AMC scope',
+  team: 'team',
+  assignee: 'assignee',
+  parent: 'duplicate link',
+};
+
+function eventValue(field: TicketEvent['field'], v: string | null): string {
+  if (v === null) return field === 'parent' ? 'none' : field === 'assignee' ? 'nobody' : 'none';
+  const labels: Record<string, Record<string, string>> = { status: STATUS_LABEL, priority: PRIORITY_LABEL, category: CATEGORY_LABEL, scope_class: SCOPE_LABEL };
+  return labels[field]?.[v] ?? v;
+}
+
+function Activity({ events }: { events: TicketEvent[] }) {
+  const [all, setAll] = useState(false);
+  if (!events.length) return null;
+  const shown = all ? events : events.slice(-8);
+  return (
+    <section>
+      <h2 className="label mb-1.5">Activity · {events.length}</h2>
+      {events.length > shown.length && (
+        <button className="mb-1 text-[12px] text-indigo-600 hover:underline" onClick={() => setAll(true)}>
+          Show {events.length - shown.length} earlier changes
+        </button>
+      )}
+      <ol className="space-y-1 border-l border-zinc-200 pl-3 text-[12px] dark:border-zinc-800">
+        {shown.map((e) => (
+          <li key={e.id} className="relative">
+            <span className="absolute top-1.5 -left-[15px] size-1.5 rounded-full bg-zinc-300 dark:bg-zinc-600" aria-hidden />
+            <span className="font-medium">{e.actor ?? 'System'}</span>{' '}
+            <span className="text-zinc-600 dark:text-zinc-400">
+              changed {FIELD_LABEL[e.field]}
+              {!(e.field === 'status' && e.old_value === null) && (
+                <>
+                  {' '}from <strong className="font-medium">{eventValue(e.field, e.old_value)}</strong>
+                </>
+              )}{' '}
+              to{' '}
+              <strong className="font-medium">{eventValue(e.field, e.new_value)}</strong>
+              {e.note && <> · {e.note}</>}
+            </span>{' '}
+            <span className="text-zinc-400" title={fullTime(e.created_at)}>
+              · {relTime(e.created_at)} ago
+            </span>
+          </li>
+        ))}
+      </ol>
     </section>
   );
 }

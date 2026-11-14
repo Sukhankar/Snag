@@ -92,6 +92,19 @@ type TicketDetail struct {
 	Attachments []AttachmentMeta `json:"attachments"`
 	Parent      *TicketRef       `json:"parent"`
 	Duplicates  []TicketRef      `json:"duplicates"`
+	Events      []TicketEvent    `json:"events"`
+}
+
+// TicketEvent is one entry in a ticket's activity log. Values are display text captured when
+// the change happened.
+type TicketEvent struct {
+	ID        string    `json:"id"`
+	Actor     *string   `json:"actor"`
+	Field     string    `json:"field"`
+	OldValue  *string   `json:"old_value"`
+	NewValue  *string   `json:"new_value"`
+	Note      *string   `json:"note"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Message struct {

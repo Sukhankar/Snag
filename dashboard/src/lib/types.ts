@@ -82,6 +82,33 @@ export interface TicketDetail extends TicketSummary {
   attachments: AttachmentMeta[];
   parent: TicketRef | null;
   duplicates: TicketRef[];
+  events: TicketEvent[];
+}
+
+export type EventField = 'status' | 'priority' | 'category' | 'scope_class' | 'team' | 'assignee' | 'parent';
+
+/** One entry in a ticket's activity log (values are display text captured at the time). */
+export interface TicketEvent {
+  id: string;
+  actor: string | null;
+  field: EventField;
+  old_value: string | null;
+  new_value: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface AMCRow {
+  project_id: string;
+  project_name: string;
+  total: number;
+  bug: number;
+  change_request: number;
+  unclassified: number;
+  open: number;
+  resolved: number;
+  duplicates: number;
+  avg_resolution_hours: number | null;
 }
 
 export interface Project {
@@ -121,6 +148,8 @@ export interface User {
   permissions: string[];
   last_login_at: string | null;
   created_at: string;
+  /** Set when an admin chose the password; the user must replace it before doing anything else. */
+  must_change_password: boolean;
 }
 
 /** The signed-in user; `permissions` are effective (the owner gets every key). */

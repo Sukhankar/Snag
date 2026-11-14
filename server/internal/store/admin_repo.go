@@ -82,6 +82,8 @@ type ListFilter struct {
 	Priority   string
 	ScopeClass string
 	Query      string
+	// AssigneeID filters by assignee: a user id, or "none" for unassigned tickets.
+	AssigneeID string
 	// TopLevelOnly hides tickets that are linked as duplicates of another ticket.
 	TopLevelOnly bool
 }
@@ -124,9 +126,16 @@ func (r *AdminRepo) ListTickets(ctx context.Context, f ListFilter) (TicketPage, 
 	if f.TopLevelOnly {
 		where = append(where, "t.parent_ticket_id IS NULL")
 	}
+	switch f.AssigneeID {
+	case "":
+	case "none":
+		where = append(where, "t.assignee_id IS NULL")
+	default:
+		where = append(where, "t.assignee_id = "+arg(f.AssigneeID)+"::uuid")
+	}
 	if q := strings.TrimSpace(f.Query); q != "" {
 		p := arg("%" + escapeLike(q) + "%")
-		where = append(where, fmt.Sprintf("(t.title ILIKE %s OR t.ticket_code ILIKE %s OR t.reporter_email ILIKE %s)", p, p, p))
+		where = append(where, fmt.Sprintf("(t.title ILIKE %s OR t.ticket_code ILIKE %s OR t.reporter_email ILIKE %s OR t.reporter_name ILIKE %s)", p, p, p, p))
 	}
 	limit := f.Limit
 	if limit <= 0 || limit > 200 {
@@ -246,7 +255,11 @@ func (r *AdminRepo) GetTicket(ctx context.Context, id string) (TicketDetail, err
 		}
 		d.Duplicates = append(d.Duplicates, c)
 	}
-	return d, rows.Err()
+	if err := rows.Err(); err != nil {
+		return d, err
+	}
+	d.Events, err = r.events(ctx, id)
+	return d, err
 }
 
 func collectMessages(rows pgx.Rows) ([]Message, error) {
@@ -332,8 +345,14 @@ func (r *AdminRepo) UpdateTicket(ctx context.Context, id string, p TicketPatch) 
 	}
 	defer rollback(ctx, tx)
 
-	var code, oldStatus string
-	err = tx.QueryRow(ctx, `SELECT ticket_code, status FROM tickets WHERE id = $1 FOR UPDATE`, id).Scan(&code, &oldStatus)
+	var (
+		code, oldStatus, oldPriority, oldCategory, oldScope string
+		oldTeam, oldAssignee, oldParent                     *string
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT ticket_code, status, priority, category, scope_class, team_id, assignee_id, parent_ticket_id
+		FROM tickets WHERE id = $1 FOR UPDATE`, id,
+	).Scan(&code, &oldStatus, &oldPriority, &oldCategory, &oldScope, &oldTeam, &oldAssignee, &oldParent)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return res, ErrNotFound
 	}
@@ -407,6 +426,31 @@ func (r *AdminRepo) UpdateTicket(ctx context.Context, id string, p TicketPatch) 
 		}
 	}
 
+	// Activity log: one row per field that actually changed.
+	ev := eventLog{ctx: ctx, tx: tx, ticketID: id, actor: p.ActorID}
+	ev.change("status", &oldStatus, p.Status)
+	ev.change("priority", &oldPriority, p.Priority)
+	ev.change("category", &oldCategory, p.Category)
+	ev.change("scope_class", &oldScope, p.ScopeClass)
+	if p.TeamSet && !sameRef(oldTeam, p.TeamID) {
+		ev.add("team", ev.name(ctx, `SELECT name FROM teams WHERE id = $1`, oldTeam), ev.name(ctx, `SELECT name FROM teams WHERE id = $1`, p.TeamID), nil)
+	}
+	if p.AssigneeSet && !sameRef(oldAssignee, p.AssigneeID) {
+		ev.add("assignee", ev.name(ctx, `SELECT name FROM users WHERE id = $1`, oldAssignee), ev.name(ctx, `SELECT name FROM users WHERE id = $1`, p.AssigneeID), nil)
+	}
+	if p.ParentSet {
+		var newParent *string
+		if len(sets) > 0 {
+			_ = tx.QueryRow(ctx, `SELECT parent_ticket_id FROM tickets WHERE id = $1`, id).Scan(&newParent)
+		}
+		if !sameRef(oldParent, newParent) {
+			ev.add("parent", ev.name(ctx, `SELECT ticket_code FROM tickets WHERE id = $1`, oldParent), ev.name(ctx, `SELECT ticket_code FROM tickets WHERE id = $1`, newParent), nil)
+		}
+	}
+	if ev.err != nil {
+		return res, ev.err
+	}
+
 	if p.Status != nil && *p.Status != oldStatus && finalStatuses[*p.Status] {
 		rows, err := tx.Query(ctx, `
 			UPDATE tickets SET status = $2
@@ -436,6 +480,10 @@ func (r *AdminRepo) UpdateTicket(ctx context.Context, id string, p TicketPatch) 
 			body := fmt.Sprintf("This issue has been %s. It was tracked together with %s, reported by other users as well.", verb, code)
 			m, err := addMessage(ctx, tx, c.TicketID, "system", "", body, false)
 			if err != nil {
+				return res, err
+			}
+			note := "Follows " + code
+			if err := insertEvent(ctx, tx, c.TicketID, p.ActorID, "status", nil, p.Status, &note); err != nil {
 				return res, err
 			}
 			res.Notices = append(res.Notices, Notice{Audience: c, Status: *p.Status, Message: m})
@@ -551,4 +599,80 @@ func (r *AdminRepo) Broadcast(ctx context.Context, rootID, authorID, body string
 		notices = append(notices, Notice{Audience: t.aud, Status: t.status, Message: m})
 	}
 	return notices, tx.Commit(ctx)
+}
+
+// ---- activity log ----
+
+func sameRef(a, b *string) bool { return (a == nil && b == nil) || (a != nil && b != nil && *a == *b) }
+
+func insertEvent(ctx context.Context, tx pgx.Tx, ticketID, actor, field string, oldValue, newValue, note *string) error {
+	var a *string
+	if actor != "" {
+		a = &actor
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO ticket_events (ticket_id, actor, field, old_value, new_value, note)
+		VALUES ($1, $2, $3, $4, $5, $6)`, ticketID, a, field, oldValue, newValue, note)
+	return err
+}
+
+// eventLog collects activity rows inside an UpdateTicket transaction; the first error sticks.
+type eventLog struct {
+	ctx      context.Context
+	tx       pgx.Tx
+	ticketID string
+	actor    string
+	err      error
+}
+
+func (e *eventLog) add(field string, oldValue, newValue *string, note *string) {
+	if e.err == nil {
+		e.err = insertEvent(e.ctx, e.tx, e.ticketID, e.actor, field, oldValue, newValue, note)
+	}
+}
+
+func (e *eventLog) change(field string, oldValue, newValue *string) {
+	if newValue != nil && *newValue != *oldValue {
+		e.add(field, oldValue, newValue, nil)
+	}
+}
+
+// name resolves a reference to its display text (team name, user name, ticket code).
+func (e *eventLog) name(ctx context.Context, query string, id *string) *string {
+	if id == nil || e.err != nil {
+		return nil
+	}
+	var v string
+	if err := e.tx.QueryRow(ctx, query, *id).Scan(&v); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			e.err = err
+		}
+		return nil
+	}
+	return &v
+}
+
+// recordReopen logs a reporter reply that reopened a resolved ticket.
+func recordReopen(ctx context.Context, tx pgx.Tx, ticketID string) error {
+	old, now, note := "resolved", "triaged", "Reopened by the reporter's reply"
+	return insertEvent(ctx, tx, ticketID, "Reporter", "status", &old, &now, &note)
+}
+
+func (r *AdminRepo) events(ctx context.Context, ticketID string) ([]TicketEvent, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, actor, field, old_value, new_value, note, created_at
+		FROM ticket_events WHERE ticket_id = $1 ORDER BY created_at, id`, ticketID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []TicketEvent{}
+	for rows.Next() {
+		var e TicketEvent
+		if err := rows.Scan(&e.ID, &e.Actor, &e.Field, &e.OldValue, &e.NewValue, &e.Note, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }

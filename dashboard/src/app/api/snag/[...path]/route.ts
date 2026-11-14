@@ -14,10 +14,10 @@ export const dynamic = 'force-dynamic';
 const ID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const re = (s: string) => new RegExp(`^${s.replaceAll(':id', ID)}$`);
 const ALLOW: Record<string, RegExp[]> = {
-  GET: ['tickets', 'tickets/:id', 'attachments/:id', 'projects', 'teams', 'stream', 'me', 'permissions', 'users', 'users/directory', 'roles'].map(re),
+  GET: ['tickets', 'tickets/:id', 'attachments/:id', 'projects', 'teams', 'stream', 'me', 'permissions', 'users', 'users/directory', 'roles', 'reports/amc'].map(re),
   POST: ['tickets/:id/(messages|broadcast)', 'projects', 'teams', 'users', 'roles', 'me/password'].map(re),
-  PATCH: ['tickets/:id', 'projects/:id', 'users/:id', 'roles/:id'].map(re),
-  DELETE: ['roles/:id'].map(re),
+  PATCH: ['tickets/:id', 'projects/:id', 'teams/:id', 'users/:id', 'roles/:id'].map(re),
+  DELETE: ['roles/:id', 'teams/:id'].map(re),
 };
 
 const json = (status: number, error: string) => Response.json({ error }, { status });

@@ -21,7 +21,9 @@ type principal struct {
 	Email   string
 	Owner   bool
 	Service bool // SNAG_ADMIN_TOKEN automation token
-	perms   map[string]bool
+	// MustChangePassword limits the session to reading /me and changing the password.
+	MustChangePassword bool
+	perms              map[string]bool
 }
 
 func (p *principal) can(perm string) bool { return p.Owner || p.Service || p.perms[perm] }
@@ -55,7 +57,7 @@ const principalCtxKey ctxKey = 2
 func me(r *http.Request) *principal { return r.Context().Value(principalCtxKey).(*principal) }
 
 func toPrincipal(u store.User) *principal {
-	p := &principal{ID: u.ID, Name: u.Name, Email: u.Email, Owner: u.IsOwner, perms: map[string]bool{}}
+	p := &principal{ID: u.ID, Name: u.Name, Email: u.Email, Owner: u.IsOwner, MustChangePassword: u.MustChangePassword, perms: map[string]bool{}}
 	for _, k := range u.Permissions {
 		p.perms[k] = true
 	}
@@ -90,9 +92,22 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				return
 			}
 			p = toPrincipal(u)
+			if p.MustChangePassword && !passwordChangeAllowed(r) {
+				writeErr(w, http.StatusForbidden, "password_change_required", "Choose a new password before continuing.")
+				return
+			}
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalCtxKey, p)))
 	})
+}
+
+// passwordChangeAllowed lists what a session with a temporary password may still do.
+func passwordChangeAllowed(r *http.Request) bool {
+	switch r.Method + " " + r.URL.Path {
+	case "GET /api/v1/admin/me", "POST /api/v1/admin/me/password", "GET /api/v1/admin/permissions":
+		return true
+	}
+	return false
 }
 
 // need allows the request when the caller holds at least one of perms.
@@ -218,12 +233,17 @@ func (s *Server) changeMyPassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, "validation_failed", err.Error())
 		return
 	}
+	if req.New == req.Current {
+		writeErr(w, http.StatusUnprocessableEntity, "validation_failed", "Choose a password that is different from the current one.")
+		return
+	}
 	newHash, err := auth.HashPassword(req.New)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
-	if _, err := s.users.UpdateUser(r.Context(), p.ID, store.UserPatch{PasswordHash: &newHash}, auth.TokenDigest(bearer(r))); err != nil {
+	cleared := false
+	if _, err := s.users.UpdateUser(r.Context(), p.ID, store.UserPatch{PasswordHash: &newHash, MustChange: &cleared}, auth.TokenDigest(bearer(r))); err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}

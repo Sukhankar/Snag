@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -24,7 +25,7 @@ func uuidParam(w http.ResponseWriter, r *http.Request, name string) (string, boo
 	return id, true
 }
 
-// GET /api/v1/admin/tickets?cursor=&limit=&project_id=&team_id=&status=a,b&category=&priority=&scope_class=&q=&top_level=1
+// GET /api/v1/admin/tickets?cursor=&limit=&project_id=&team_id=&assignee_id=(uuid|me|none)&status=a,b&category=&priority=&scope_class=&q=&top_level=1
 func (s *Server) adminListTickets(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := store.ListFilter{
@@ -35,6 +36,21 @@ func (s *Server) adminListTickets(w http.ResponseWriter, r *http.Request) {
 		ScopeClass:   q.Get("scope_class"),
 		Query:        q.Get("q"),
 		TopLevelOnly: q.Get("top_level") == "1",
+		AssigneeID:   q.Get("assignee_id"),
+	}
+	switch f.AssigneeID {
+	case "", "none":
+	case "me":
+		if me(r).ID == "" {
+			writeErr(w, http.StatusBadRequest, "invalid_filter", "assignee_id=me needs a user session")
+			return
+		}
+		f.AssigneeID = me(r).ID
+	default:
+		if !isUUID(f.AssigneeID) {
+			writeErr(w, http.StatusBadRequest, "invalid_filter", "assignee_id must be a user id, me or none")
+			return
+		}
 	}
 	if c := q.Get("cursor"); c != "" {
 		cur, err := store.DecodeCursor(c)
@@ -420,4 +436,103 @@ func (s *Server) adminCreateTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
+}
+
+// PATCH /api/v1/admin/teams/{id} {name?, description?}
+func (s *Server) adminPatchTeam(w http.ResponseWriter, r *http.Request) {
+	id, ok := uuidParam(w, r, "id")
+	if !ok {
+		return
+	}
+	var req struct {
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+	}
+	if !decodeJSON(w, r, 16<<10, &req) {
+		return
+	}
+	var name, desc *string
+	if req.Name != nil {
+		n := clean(*req.Name)
+		if n == "" || runeLen(n) > 100 {
+			writeErr(w, http.StatusUnprocessableEntity, "validation_failed", "name is required (max 100 characters)")
+			return
+		}
+		name = &n
+	}
+	if req.Description != nil {
+		d := clean(*req.Description)
+		if runeLen(d) > 2000 {
+			writeErr(w, http.StatusUnprocessableEntity, "validation_failed", "description is too long")
+			return
+		}
+		desc = &d
+	}
+	t, err := s.projects.UpdateTeam(r.Context(), id, name, desc)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+// DELETE /api/v1/admin/teams/{id} — tickets of the team keep existing without a team.
+func (s *Server) adminDeleteTeam(w http.ResponseWriter, r *http.Request) {
+	id, ok := uuidParam(w, r, "id")
+	if !ok {
+		return
+	}
+	if err := s.projects.DeleteTeam(r.Context(), id); err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GET /api/v1/admin/reports/amc?from=YYYY-MM-DD&to=YYYY-MM-DD&project_id=
+// Tickets created from `from` through `to` (inclusive, UTC). Defaults to the current month.
+func (s *Server) adminAMCReport(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	now := time.Now().UTC()
+	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	to := from.AddDate(0, 1, 0)
+	parse := func(v string) (time.Time, bool) {
+		t, err := time.Parse(time.DateOnly, v)
+		return t, err == nil
+	}
+	if v := q.Get("from"); v != "" {
+		t, ok := parse(v)
+		if !ok {
+			writeErr(w, http.StatusBadRequest, "invalid_filter", "from must be YYYY-MM-DD")
+			return
+		}
+		from = t
+	}
+	if v := q.Get("to"); v != "" {
+		t, ok := parse(v)
+		if !ok {
+			writeErr(w, http.StatusBadRequest, "invalid_filter", "to must be YYYY-MM-DD")
+			return
+		}
+		to = t.AddDate(0, 0, 1) // inclusive end date
+	}
+	if !to.After(from) || to.Sub(from) > 3*366*24*time.Hour {
+		writeErr(w, http.StatusBadRequest, "invalid_filter", "the period must be between 1 day and 3 years")
+		return
+	}
+	projectID := q.Get("project_id")
+	if projectID != "" && !isUUID(projectID) {
+		writeErr(w, http.StatusBadRequest, "invalid_filter", "invalid project_id")
+		return
+	}
+	rows, err := s.admin.AMCReport(r.Context(), from, to, projectID)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"from":  from.Format(time.DateOnly),
+		"to":    to.AddDate(0, 0, -1).Format(time.DateOnly),
+		"items": rows,
+	})
 }

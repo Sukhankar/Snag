@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import { logout } from '@/app/login/actions';
 import type { Me } from '@/lib/types';
 import { MeProvider } from './me';
@@ -19,6 +20,7 @@ const NAV: NavItem[] = [
   { href: '/board', label: 'Board', icon: 'M4 4h4v16H4zM10 4h4v10h-4zM16 4h4v13h-4z', perms: ['tickets.view'] },
   { href: '/projects', label: 'Projects', icon: 'M3 7h7l2 2h9v10H3zM3 7V5h7', perms: ['projects.view'] },
   { href: '/users', label: 'Users', icon: 'M16 19v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1M9 10a3 3 0 100-6 3 3 0 000 6zM22 19v-1a4 4 0 00-3-3.9M16 4.1a3 3 0 010 5.8', perms: ['users.manage'] },
+  { href: '/reports', label: 'Reports', icon: 'M4 20V10M10 20V4M16 20v-7M22 20H2', perms: ['tickets.view'] },
   { href: '/roles', label: 'Roles', icon: 'M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z M9 12l2 2 4-4', perms: ['roles.manage'] },
 ];
 
@@ -34,8 +36,14 @@ function LiveDot() {
 
 export function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
   const path = usePathname();
-  const nav = NAV.filter((n) => n.perms.some((p) => me.permissions.includes(p)));
-  const canStream = me.permissions.includes('tickets.view');
+  const router = useRouter();
+  const locked = me.must_change_password; // temporary password: only My account until it is changed
+  const nav = locked ? [] : NAV.filter((n) => n.perms.some((p) => me.permissions.includes(p)));
+  const canStream = !locked && me.permissions.includes('tickets.view');
+
+  useEffect(() => {
+    if (locked && path !== '/account') router.replace('/account');
+  }, [locked, path, router]);
 
   const body = (
     <div className="flex h-dvh flex-col md:flex-row">

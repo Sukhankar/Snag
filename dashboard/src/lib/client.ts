@@ -1,4 +1,4 @@
-import type { AttachmentMeta, DirectoryEntry, Message, Page, PermissionDef, Project, Role, Team, TicketDetail, TicketSummary, User } from './types';
+import type { AMCRow, AttachmentMeta, DirectoryEntry, Message, Page, PermissionDef, Project, Role, Team, TicketDetail, TicketSummary, User } from './types';
 
 // Browser-side API client. Everything goes through the same-origin BFF proxy at
 // /api/snag/*, which attaches the admin token server-side.
@@ -24,6 +24,10 @@ async function call<T>(path: string, init?: { method?: string; body?: unknown; s
     throw new ApiError('Session expired', 401);
   }
   const data = await res.json().catch(() => ({}));
+  if (res.status === 403 && data.error === 'password_change_required' && window.location.pathname !== '/account') {
+    window.location.href = '/account';
+    throw new ApiError(data.message, 403);
+  }
   if (res.status === 204) return undefined as T;
   if (!res.ok) throw new ApiError(data.message || data.error || `Request failed (${res.status})`, res.status);
   return data as T;
@@ -39,6 +43,8 @@ export interface ListParams {
   category?: string;
   q?: string;
   top_level?: boolean;
+  /** A user id, `me`, or `none` for unassigned tickets. */
+  assignee_id?: string;
 }
 
 function qs(p: ListParams): string {
@@ -46,7 +52,7 @@ function qs(p: ListParams): string {
   if (p.cursor) s.set('cursor', p.cursor);
   if (p.limit) s.set('limit', String(p.limit));
   if (p.status?.length) s.set('status', p.status.join(','));
-  for (const k of ['project_id', 'scope_class', 'priority', 'category', 'q'] as const) if (p[k]) s.set(k, p[k]!);
+  for (const k of ['project_id', 'scope_class', 'priority', 'category', 'q', 'assignee_id'] as const) if (p[k]) s.set(k, p[k]!);
   if (p.top_level) s.set('top_level', '1');
   const out = s.toString();
   return out ? '?' + out : '';
@@ -76,6 +82,12 @@ export const api = {
     call<Project>('projects/' + id, { method: 'PATCH', body: patch }),
   teams: () => call<{ items: Team[] }>('teams').then((r) => r.items),
   createTeam: (name: string, description: string) => call<Team>('teams', { method: 'POST', body: { name, description } }),
+  patchTeam: (id: string, patch: { name?: string; description?: string }) => call<Team>('teams/' + id, { method: 'PATCH', body: patch }),
+  deleteTeam: (id: string) => call<void>('teams/' + id, { method: 'DELETE' }),
+  amcReport: (p: { from?: string; to?: string; project_id?: string }) => {
+    const s = new URLSearchParams(Object.entries(p).filter(([, v]) => v) as [string, string][]);
+    return call<{ from: string; to: string; items: AMCRow[] }>('reports/amc' + (s.size ? '?' + s : ''));
+  },
 
   users: () => call<{ items: User[] }>('users').then((r) => r.items),
   directory: () => call<{ items: DirectoryEntry[] }>('users/directory').then((r) => r.items),

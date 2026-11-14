@@ -137,3 +137,27 @@ func (r *ProjectRepo) CreateTeam(ctx context.Context, name string, description *
 		name, description).Scan(&t.ID, &t.Name, &t.Description)
 	return t, err
 }
+
+// UpdateTeam renames a team or changes its description (nil leaves a field unchanged).
+func (r *ProjectRepo) UpdateTeam(ctx context.Context, id string, name, description *string) (Team, error) {
+	var t Team
+	err := r.pool.QueryRow(ctx, `
+		UPDATE teams SET name = COALESCE($2, name), description = COALESCE($3, description)
+		WHERE id = $1 RETURNING id, name, description`, id, name, description).Scan(&t.ID, &t.Name, &t.Description)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return t, ErrNotFound
+	}
+	return t, err
+}
+
+// DeleteTeam removes a team; its tickets become unassigned to any team (ON DELETE SET NULL).
+func (r *ProjectRepo) DeleteTeam(ctx context.Context, id string) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM teams WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

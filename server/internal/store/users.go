@@ -22,6 +22,8 @@ type User struct {
 	Permissions []string   `json:"permissions"` // the role's permissions (owner: overridden to all by the API)
 	LastLoginAt *time.Time `json:"last_login_at"`
 	CreatedAt   time.Time  `json:"created_at"`
+	// MustChangePassword is set when an admin chose the password (new account or reset).
+	MustChangePassword bool `json:"must_change_password"`
 }
 
 type Role struct {
@@ -43,12 +45,12 @@ type UserRepo struct{ pool *pgxpool.Pool }
 
 func NewUserRepo(pool *pgxpool.Pool) *UserRepo { return &UserRepo{pool: pool} }
 
-const userCols = `u.id, u.email, u.name, u.role_id, r.name, u.is_owner, u.is_active, r.permissions, u.last_login_at, u.created_at`
+const userCols = `u.id, u.email, u.name, u.role_id, r.name, u.is_owner, u.is_active, r.permissions, u.last_login_at, u.created_at, u.must_change_password`
 
 func scanUser(row pgx.Row, extra ...any) (User, error) {
 	var u User
 	err := row.Scan(append([]any{&u.ID, &u.Email, &u.Name, &u.RoleID, &u.RoleName, &u.IsOwner, &u.IsActive,
-		&u.Permissions, &u.LastLoginAt, &u.CreatedAt}, extra...)...)
+		&u.Permissions, &u.LastLoginAt, &u.CreatedAt, &u.MustChangePassword}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return u, ErrNotFound
 	}
@@ -68,11 +70,14 @@ func (r *UserRepo) OwnerExists(ctx context.Context) (bool, error) {
 	return ok, err
 }
 
-func (r *UserRepo) CreateUser(ctx context.Context, email, name, hash, roleID string, owner bool) (User, error) {
+// CreateUser adds an account. mustChange forces a password change at first sign-in (used when
+// an admin picked the temporary password).
+func (r *UserRepo) CreateUser(ctx context.Context, email, name, hash, roleID string, owner, mustChange bool) (User, error) {
 	var id string
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, password_hash, role_id, is_owner) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		strings.TrimSpace(email), name, hash, roleID, owner).Scan(&id)
+		INSERT INTO users (email, name, password_hash, role_id, is_owner, must_change_password)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		strings.TrimSpace(email), name, hash, roleID, owner, mustChange).Scan(&id)
 	if isUnique(err) {
 		return User{}, ErrConflict
 	}
@@ -92,7 +97,7 @@ func (r *UserRepo) CreateOwner(ctx context.Context, email, name, hash string) (U
 	if err := r.pool.QueryRow(ctx, `SELECT id FROM roles WHERE name = 'Owner' AND is_system`).Scan(&roleID); err != nil {
 		return User{}, err
 	}
-	return r.CreateUser(ctx, email, name, hash, roleID, true)
+	return r.CreateUser(ctx, email, name, hash, roleID, true, false)
 }
 
 func (r *UserRepo) GetUser(ctx context.Context, id string) (User, error) {
@@ -158,6 +163,8 @@ type UserPatch struct {
 	RoleID       *string
 	IsActive     *bool
 	PasswordHash *string
+	// MustChange sets or clears the forced password change flag.
+	MustChange *bool
 }
 
 // UpdateUser applies the patch. Deactivation or a password change revokes all of the user's
@@ -174,8 +181,9 @@ func (r *UserRepo) UpdateUser(ctx context.Context, id string, p UserPatch, keepS
 			email         = COALESCE($3, email),
 			role_id       = COALESCE($4, role_id),
 			is_active     = COALESCE($5, is_active),
-			password_hash = COALESCE($6, password_hash)
-		WHERE id = $1`, id, p.Name, p.Email, p.RoleID, p.IsActive, p.PasswordHash)
+			password_hash = COALESCE($6, password_hash),
+			must_change_password = COALESCE($7, must_change_password)
+		WHERE id = $1`, id, p.Name, p.Email, p.RoleID, p.IsActive, p.PasswordHash, p.MustChange)
 	if isUnique(err) {
 		return User{}, ErrConflict
 	}

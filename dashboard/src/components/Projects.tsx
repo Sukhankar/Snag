@@ -108,8 +108,39 @@ export function Projects() {
           <h2 className="font-semibold">Teams</h2>
           <ul className="flex flex-wrap gap-2">
             {teams.map((t) => (
-              <li key={t.id} className="rounded-md border border-zinc-200 px-2.5 py-1 dark:border-zinc-800">
-                {t.name}
+              <li key={t.id} className="flex items-center gap-2 rounded-md border border-zinc-200 px-2.5 py-1 dark:border-zinc-800">
+                <span>{t.name}</span>
+                {can('teams.manage') && (
+                  <span className="flex gap-1.5 text-[11px]">
+                    <button
+                      className="text-indigo-600 hover:underline"
+                      aria-label={`Rename team ${t.name}`}
+                      onClick={() => {
+                        const name = prompt('Team name', t.name)?.trim();
+                        if (!name || name === t.name) return;
+                        run(async () => {
+                          const saved = await api.patchTeam(t.id, { name });
+                          setTeams((ts) => ts.map((x) => (x.id === t.id ? saved : x)));
+                        });
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      className="text-red-600 hover:underline"
+                      aria-label={`Delete team ${t.name}`}
+                      onClick={() => {
+                        if (!confirm(`Delete the team "${t.name}"? Its tickets keep everything except the team.`)) return;
+                        run(async () => {
+                          await api.deleteTeam(t.id);
+                          setTeams((ts) => ts.filter((x) => x.id !== t.id));
+                        });
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </span>
+                )}
               </li>
             ))}
             {teams.length === 0 && <li className="text-zinc-500">No teams yet.</li>}

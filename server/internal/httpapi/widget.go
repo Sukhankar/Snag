@@ -163,7 +163,7 @@ func (s *Server) widgetPostMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, "validation_failed", err.Error())
 		return
 	}
-	aud, msg, err := s.widget.AddClientMessage(r.Context(), project.ID, token, chi.URLParam(r, "code"), body, atts)
+	aud, msg, reopened, err := s.widget.AddClientMessage(r.Context(), project.ID, token, chi.URLParam(r, "code"), body, atts)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -176,6 +176,9 @@ func (s *Server) widgetPostMessage(w http.ResponseWriter, r *http.Request) {
 		ID: msg.ID, TicketID: aud.TicketID, AuthorType: msg.AuthorType, Body: msg.Body, CreatedAt: msg.CreatedAt,
 	})
 	s.publishAdminTicket(r, aud.TicketID)
+	if reopened {
+		s.publishClientStatus(aud, "triaged")
+	}
 }
 
 // GET /api/v1/widget/stream?key=<project key>&token=<reporter token>

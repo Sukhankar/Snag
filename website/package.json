@@ -1,1 +1,12 @@
-{"name":"snag-site","private":true,"scripts":{"build":"node build.mjs","dev":"python3 -m http.server 4173 --directory dist","test":"node check.mjs"},"license":"Apache-2.0"}
+{
+  "name": "snag-site",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "build:prod": "NODE_ENV=production node build.mjs && NODE_ENV=production node check.mjs",
+    "dev": "python3 serve.py",
+    "test": "node check.mjs && node --test tests/*.test.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "license": "Apache-2.0"
+}

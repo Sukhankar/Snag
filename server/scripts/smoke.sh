@@ -113,6 +113,10 @@ jq -e '.messages[]|select(.author_type=="system")|.body|test("resolved")' <<<"$d
 expect "broadcast → 201" "$(code -X POST "${A[@]}" -d '{"body":"Fixed in 2.4.2"}' "$URL/api/v1/admin/tickets/$ID1/broadcast")" 201
 expect "broadcast reached duplicate" "$(curl -s "${W[@]}" "$URL/api/v1/widget/tickets/$CODE2" | jq '[.messages[]|select(.body=="Fixed in 2.4.2")]|length')" 1
 expect "client reply reopens resolved" "$(curl -s -X POST "${W[@]}" -d '{"body":"Still broken"}' "$URL/api/v1/widget/tickets/$CODE2/messages" -o /dev/null -w '%{http_code}'; curl -s "${W[@]}" "$URL/api/v1/widget/tickets/$CODE2" | jq -r .status)" "201triaged"
+ev=$(curl -s "${A[@]}" "$URL/api/v1/admin/tickets/$ID2" | jq -c '.events')
+jq -e 'map(select(.field=="status" and .note=="Follows '"$CODE1"'"))|length==1' <<<"$ev" >/dev/null && ok "cascade logged on the duplicate" || bad "cascade not in activity log"
+jq -e 'map(select(.actor=="Reporter" and .new_value=="triaged"))|length==1' <<<"$ev" >/dev/null && ok "reopen logged as the reporter" || bad "reopen not in activity log"
+jq -e 'map(select(.field=="parent"))|length==1' <<<"$ev" >/dev/null && ok "duplicate link logged" || bad "link not in activity log"
 
 echo "== projects"
 np=$(curl -s -X POST "${A[@]}" -d '{"name":"Smoke POS","allowed_origins":["https://*.pos.example.com","https://pos.example.com:443/"]}' "$URL/api/v1/admin/projects")

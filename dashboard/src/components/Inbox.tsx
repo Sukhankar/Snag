@@ -4,10 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, type ListParams } from '@/lib/client';
 import { relTime, SCOPE_LABEL } from '@/lib/format';
-import type { Project, Status, TicketSummary } from '@/lib/types';
+import type { DirectoryEntry, Project, Status, TicketSummary } from '@/lib/types';
 import { PRIORITIES, SCOPES } from '@/lib/types';
 import { PriorityDot, ScopeChip, StatusBadge } from './badges';
-import { useSnagEvents } from './stream';
+import { useMe } from './me';
+import { useSnagEvents, useStreamGeneration } from './stream';
 import { Workspace } from './Workspace';
 
 const VIEWS: { id: string; label: string; status: Status[] }[] = [
@@ -23,9 +24,11 @@ interface Filters {
   project_id: string;
   scope_class: string;
   priority: string;
+  /** '' = anyone, 'me', or 'none' (unassigned). */
+  assignee: string;
   top_level: boolean;
 }
-const DEFAULTS: Filters = { view: 'open', q: '', project_id: '', scope_class: '', priority: '', top_level: false };
+const DEFAULTS: Filters = { view: 'open', q: '', project_id: '', scope_class: '', priority: '', assignee: '', top_level: false };
 
 function toParams(f: Filters): ListParams {
   return {
@@ -34,12 +37,13 @@ function toParams(f: Filters): ListParams {
     project_id: f.project_id || undefined,
     scope_class: f.scope_class || undefined,
     priority: f.priority || undefined,
+    assignee_id: f.assignee || undefined,
     top_level: f.top_level,
     limit: 50,
   };
 }
 
-function matches(t: TicketSummary, f: Filters): boolean {
+function matches(t: TicketSummary, f: Filters, myId: string): boolean {
   const status = VIEWS.find((v) => v.id === f.view)?.status ?? [];
   const q = f.q.trim().toLowerCase();
   return (
@@ -47,8 +51,9 @@ function matches(t: TicketSummary, f: Filters): boolean {
     (!f.project_id || t.project_id === f.project_id) &&
     (!f.scope_class || t.scope_class === f.scope_class) &&
     (!f.priority || t.priority === f.priority) &&
+    (!f.assignee || (f.assignee === 'none' ? !t.assignee_id : t.assignee_id === myId)) &&
     (!f.top_level || !t.parent_ticket_id) &&
-    (!q || t.title.toLowerCase().includes(q) || t.ticket_code.toLowerCase().includes(q))
+    (!q || [t.title, t.ticket_code, t.reporter_email ?? '', t.reporter_name ?? ''].some((v) => v.toLowerCase().includes(q)))
   );
 }
 
@@ -56,6 +61,9 @@ export function Inbox() {
   const router = useRouter();
   const params = useSearchParams();
   const selected = params.get('t');
+  const me = useMe();
+  const generation = useStreamGeneration();
+  const [people, setPeople] = useState<Map<string, string>>(new Map());
 
   const [filters, setFilters] = useState<Filters>(DEFAULTS);
   const [debouncedQ, setDebouncedQ] = useState('');
@@ -72,6 +80,7 @@ export function Inbox() {
 
   useEffect(() => {
     api.projects().then(setProjects, () => {});
+    api.directory().then((d: DirectoryEntry[]) => setPeople(new Map(d.map((p) => [p.id, p.name]))), () => {});
   }, []);
 
   useEffect(() => {
@@ -99,7 +108,7 @@ export function Inbox() {
     );
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, generation]);
 
   const loadMore = useCallback(() => {
     if (!cursor || loading) return;
@@ -132,11 +141,13 @@ export function Inbox() {
 
   useSnagEvents((e) => {
     if (e.type === 'ticket.created') {
-      if (!matches(e.data, effective)) return;
+      if (!matches(e.data, effective, me.id)) return;
       setItems((xs) => (xs.some((x) => x.id === e.data.id) ? xs : [e.data, ...xs]));
       setFresh((s) => new Set(s).add(e.data.id));
     } else if (e.type === 'ticket.updated') {
-      setItems((xs) => xs.map((x) => (x.id === e.data.id ? e.data : x)));
+      const t = e.data;
+      // A ticket that no longer fits this view leaves the list (the open one stays put).
+      setItems((xs) => (matches(t, effective, me.id) || t.id === selected ? xs.map((x) => (x.id === t.id ? t : x)) : xs.filter((x) => x.id !== t.id)));
     }
   });
 
@@ -171,7 +182,7 @@ export function Inbox() {
     <div className="flex h-full">
       <aside className={`${selected ? 'hidden xl:flex' : 'flex'} w-full min-w-0 flex-col border-r border-zinc-200 xl:w-[400px] xl:shrink-0 dark:border-zinc-800`}>
         <div className="space-y-2 border-b border-zinc-200 p-2.5 dark:border-zinc-800">
-          <input className="input" type="search" placeholder="Search title, SNAG-code, reporter email…" value={filters.q} onChange={(e) => set('q', e.target.value)} />
+          <input className="input" type="search" placeholder="Search title, SNAG-code, reporter name or email…" value={filters.q} onChange={(e) => set('q', e.target.value)} />
           <div className="flex gap-1" role="tablist">
             {VIEWS.map((v) => (
               <button
@@ -209,6 +220,11 @@ export function Inbox() {
                   {p.replace('_', ' ')}
                 </option>
               ))}
+            </select>
+            <select aria-label="Assignee" className="select" value={filters.assignee} onChange={(e) => set('assignee', e.target.value)}>
+              <option value="">Anyone</option>
+              <option value="me">Assigned to me</option>
+              <option value="none">Unassigned</option>
             </select>
             <label className="flex items-center gap-1 text-[12px] text-zinc-600 dark:text-zinc-400">
               <input type="checkbox" checked={filters.top_level} onChange={(e) => set('top_level', e.target.checked)} />
@@ -248,6 +264,11 @@ export function Inbox() {
                   )}
                   {t.has_attachments && <span title="Has attachments">📎</span>}
                   <span className="ml-auto truncate">{t.reporter_name || t.reporter_email}</span>
+                  {t.assignee_id && (
+                    <span className="shrink-0 rounded bg-indigo-50 px-1 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300" title="Assignee">
+                      → {t.assignee_id === me.id ? 'you' : (people.get(t.assignee_id) ?? 'inactive user')}
+                    </span>
+                  )}
                 </div>
               </button>
             </li>

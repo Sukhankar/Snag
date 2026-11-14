@@ -18,7 +18,9 @@ The reporter stays in your app. Your team gets the context needed to investigate
 | Capture | Triage | Close the loop |
 | :--- | :--- | :--- |
 | Open the widget with **Alt+B** or its floating button. Add a screenshot and a description. | Work from an inbox or board. Assign a ticket, set priority, classify coverage, and link duplicates. | Reply to the reporter, keep internal notes private, and broadcast a fix to linked tickets. |
-| The last **20 browser events** travel with the report. | Separate projects keep client work organised. | Replies and status changes arrive through live streams. |
+| The last **20 browser events** travel with the report. | Separate projects keep client work organised. Filter by assignee (“Assigned to me”, “Unassigned”). Every change is recorded in the ticket's activity log. | Replies and status changes arrive through live streams, and views catch up automatically after a dropped connection. |
+
+The **AMC report** shows, per project and period, how much work was covered by the maintenance contract (bugs) versus billable new scope (change requests), with open counts and average resolution time. It exports to CSV.
 
 ## Website & developer guides
 
@@ -136,6 +138,7 @@ sequenceDiagram
 The **Owner** manages users and roles and always has every permission. Default roles include Admin, Developer, Support Agent, and Viewer; the permission grid lets you adjust them or create your own.
 
 - Role changes apply on the next request. Deactivation and password resets revoke sessions.
+- Passwords chosen by an admin (new accounts and resets) are temporary: until the user picks their own, the API allows only reading their profile and changing the password.
 - Users cannot grant permissions they do not hold or edit a more privileged user.
 - Internal notes stay out of reporter queries and reporter live streams.
 - Passwords use Argon2id. Session tokens are stored as SHA-256 hashes on the server; the dashboard uses an HttpOnly session cookie.
