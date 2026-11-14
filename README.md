@@ -1,206 +1,226 @@
-# Snag
+<p align="center">
+  <img src="docs/assets/snag-header.svg" alt="Snag — Give every bug a paper trail. Capture, triage, reply." width="1200">
+</p>
 
-Multi-tenant issue tracking and telemetry engine. Client apps embed a script tag, users report
-issues with screenshots and an automatic "black box" of recent app activity, and the team
-triages everything from one dashboard with live updates both ways.
+<p align="center">
+  <a href="#run-it-locally">Run locally</a> ·
+  <a href="#put-it-in-your-app">Embed the widget</a> ·
+  <a href="#how-it-fits-together">Architecture</a> ·
+  <a href="docs/implementation.md">Implementation notes</a>
+</p>
 
-```
- client app (POS / ERP / SaaS)            Go server (single binary)             Next.js dashboard
-┌──────────────────────────────┐        ┌──────────────────────────────┐       ┌───────────────────────┐
-│ <script widget.min.js>       │  JSON  │ /api/v1/widget/*  origin     │       │ /api/snag/* BFF proxy │
-│  closed ShadowRoot (Preact)  ├───────►│   guard + rate limit         │◄──────┤  session cookie →     │
-│  ring buffer: 20 events      │        │ /api/v1/admin/*   bearer     │ HTTP  │  admin bearer token   │
-│  WebP/gzip compression       │◄───────┤ SSE broker (fan-out)         ├──────►│ inbox · triage · board│
-│  "My Tickets" over SSE       │  SSE   │ pgxpool → PostgreSQL 17      │  SSE  │                       │
-└──────────────────────────────┘        └──────────────────────────────┘       └───────────────────────┘
-```
+Snag is a bug-reporting tool for teams supporting several client applications. Embed a widget, collect a report with screenshots and recent browser activity, then handle the conversation in one dashboard.
 
-| Path | What |
-|---|---|
-| [server/](server/) | Go 1.26, chi, pgx v5. Migrations embedded, run at start-up. Also serves `widget.min.js`. |
-| [widget/](widget/) | Preact + Vite library build → one IIFE file. |
-| [dashboard/](dashboard/) | Next.js 16 App Router + Tailwind 4. |
-| [e2e/](e2e/) | Playwright browser suites for the widget and the dashboard. |
+The reporter stays in your app. Your team gets the context needed to investigate.
 
-## How to run
+## From “it broke” to a useful report
 
-You need **Docker** (with Compose). That's all: Go, Node and Postgres run inside containers.
+| Capture | Triage | Close the loop |
+| :--- | :--- | :--- |
+| Open the widget with **Alt+B** or its floating button. Add a screenshot and a description. | Work from an inbox or board. Assign a ticket, set priority, classify coverage, and link duplicates. | Reply to the reporter, keep internal notes private, and broadcast a fix to linked tickets. |
+| The last **20 browser events** travel with the report. | Separate projects keep client work organised. | Replies and status changes arrive through live streams. |
+
+## Run it locally
+
+Install Docker with Compose. The containers provide Go, Node.js, and PostgreSQL.
 
 ```bash
+git clone https://github.com/Sukhankar/Snag.git
 cd Snag
-cp .env.example .env          # change the passwords/secrets for anything beyond local use
-docker compose up --build -d  # first build takes a few minutes
-docker compose ps             # postgres, server and dashboard should be "Up"
+cp .env.example .env
 ```
 
-| Open | What |
-|---|---|
-| http://localhost:3000 | Dashboard. Sign in as the Owner: `SNAG_OWNER_EMAIL` / `SNAG_OWNER_PASSWORD` from `.env` |
-| http://localhost:8080/healthz | API health check → `{"status":"ok"}` |
-| http://localhost:8080/widget.min.js | The embeddable widget |
-
-## Users, roles & permissions
-
-- **Owner (the ultimate user).** Created on first start from `SNAG_OWNER_EMAIL` /
-  `SNAG_OWNER_PASSWORD`. Always has every permission, can't be deactivated or re-roled, and
-  only the Owner can edit the Owner account. Change the password after first sign-in under
-  **My account**.
-- **Users** page: create people (name, email, role, generated temporary password), change
-  roles, reset passwords, deactivate/reactivate. Deactivating or resetting a password signs
-  that person out everywhere immediately.
-- **Roles** page: a grid of permissions × roles. Tick a box and it applies on that role's
-  next request, even for people already signed in. Default roles are Admin, Developer,
-  Support Agent and Viewer; create your own or edit these. The 👑 Owner role is locked.
-- **13 permissions**: view / update / assign / classify (AMC) / link duplicates / reply /
-  internal notes / broadcast on tickets; view / manage projects; manage teams; manage users;
-  manage roles. Without "Internal notes", a user never receives internal notes, not even
-  over the live stream.
-- **No privilege escalation**: you can only assign roles or grant permissions you hold
-  yourself, and you can't edit a user who has more permissions than you.
-- Every rule is enforced by the Go server on each request; the dashboard only hides what
-  you can't use. Passwords are hashed with argon2id, and only a SHA-256 of each session
-  token is stored.
-
-**Locked out?** Reset any account's password (including the Owner's) from the server:
+Edit `.env`: set `POSTGRES_PASSWORD`, `SNAG_OWNER_EMAIL`, and `SNAG_OWNER_PASSWORD`. Then start the stack:
 
 ```bash
-docker compose run --rm -e SNAG_NEW_PASSWORD='a-new-long-password' server set-password owner@example.com
+docker compose up --build -d
+docker compose ps
 ```
 
-**Try the widget** with the built-in demo page (the demo project in `.env` whitelists port 5173):
+| Address | Purpose |
+| :--- | :--- |
+| [localhost:3000](http://localhost:3000) | Team dashboard. Sign in with the Owner credentials from `.env`. |
+| [localhost:8080/healthz](http://localhost:8080/healthz) | API health check. |
+| [localhost:8080/widget.min.js](http://localhost:8080/widget.min.js) | Built widget, served by the Go API. |
+
+The Owner account is created on first start. Changing the bootstrap credentials in `.env` does not reset an existing account; use **My account** in the dashboard.
+
+**Try a report.** With Node.js installed, start the demo host in a separate terminal:
 
 ```bash
-cd widget && npm ci && npm run demo   # then open http://localhost:5173 and press Alt+B
+cd widget
+npm ci
+npm run demo
 ```
 
-Submit a ticket there and watch it appear live in the dashboard inbox.
+Open [localhost:5173](http://localhost:5173), press **Alt+B**, and submit a ticket. The example environment includes a demo project that allows this origin.
 
-Everyday commands:
+## Put it in your app
 
-```bash
-docker compose logs -f server         # API logs
-docker compose up --build -d          # rebuild after code changes
-docker compose down                   # stop (data is kept in the pgdata volume)
-docker compose down -v                # stop and delete all data
-```
-
-Embed the widget in any app (the dashboard's **Projects** page generates this for you):
+Create a project in the dashboard and add the application's origin. The **Projects** page generates the embed snippet:
 
 ```html
-<script src="https://snag.example.com/widget.min.js"
-        data-project-key="pk_..."
-        data-app-version="2.4.1"
-        async></script>
+<script
+  src="https://snag.example.com/widget.min.js"
+  data-project-key="pk_..."
+  data-app-version="2.4.1"
+  async
+></script>
 ```
 
-Optional attributes: `data-api`, `data-user-name`, `data-user-email`, `data-fab="false"`
-(hotkey only), `data-mask-text="true"` (don't record clicked text), `data-theme`, `data-accent`.
-JS API: `Snag.init({...})`, `open()`, `close()`, `toggle()`, `identify({name, email})`.
+Use your Snag server URL and the project's key. The widget runs inside a closed Shadow DOM so the host page's CSS stays separate.
 
-### Running without Docker
+| Attribute | Use |
+| :--- | :--- |
+| `data-api` | Override the API address. |
+| `data-user-name`, `data-user-email` | Identify the reporter. |
+| `data-fab="false"` | Hide the floating button; keep the keyboard shortcut. |
+| `data-mask-text="true"` | Omit clicked text from telemetry. |
+| `data-theme`, `data-accent` | Adjust the widget's appearance. |
+
+The JavaScript API exposes `Snag.init({...})`, `open()`, `close()`, `toggle()`, and `identify({name, email})`.
+
+## How it fits together
+
+```mermaid
+flowchart LR
+    W["Client application<br/>Preact widget"] -->|Reports and attachments| API["Go API<br/>Authentication · permissions · origin checks"]
+    API -->|Live replies / SSE| W
+    D["Team dashboard<br/>Next.js"] -->|Session cookie| P["Server-side proxy<br/>Allowed routes only"]
+    P -->|Bearer session token| API
+    API -->|Live ticket updates / SSE| P
+    P --> D
+    API --> DB[(PostgreSQL 17)]
+```
+
+Only the Go API talks to PostgreSQL. The dashboard proxy forwards the user's session token; the API checks permissions on each request. The realtime broker runs inside the API process.
+
+```mermaid
+sequenceDiagram
+    participant R as Reporter
+    participant W as Widget
+    participant A as Go API
+    participant T as Team
+    R->>W: Describe the issue and attach a screenshot
+    W->>A: Report + recent browser events
+    A->>A: Validate and save in one transaction
+    A-->>T: New ticket via live stream
+    T->>A: Public reply or status change
+    A-->>W: Update via live stream
+    W-->>R: Show reply in My Tickets
+```
+
+### One repository, four working areas
+
+| Directory | Responsibility |
+| :--- | :--- |
+| [`server/`](server/) | Go 1.26 API, chi router, pgx, embedded SQL migrations, widget hosting. |
+| [`widget/`](widget/) | Preact + Vite; builds a single embeddable script. |
+| [`dashboard/`](dashboard/) | Next.js 16, React, Tailwind, server-side API proxy. |
+| [`e2e/`](e2e/) | Playwright browser suites for reports, dashboard workflows, users, and roles. |
+
+## Access and privacy
+
+The **Owner** manages users and roles and always has every permission. Default roles include Admin, Developer, Support Agent, and Viewer; the permission grid lets you adjust them or create your own.
+
+- Role changes apply on the next request. Deactivation and password resets revoke sessions.
+- Users cannot grant permissions they do not hold or edit a more privileged user.
+- Internal notes stay out of reporter queries and reporter live streams.
+- Passwords use Argon2id. Session tokens are stored as SHA-256 hashes on the server; the dashboard uses an HttpOnly session cookie.
+- Telemetry keeps a 20-event buffer in memory. It strips URL query strings and does not record input values. Clicked text can be disabled with `data-mask-text`.
+
+For query isolation, attachment validation, origin checks, and storage details, read the [implementation notes](docs/implementation.md).
+
+## Working on Snag
+
+<details>
+<summary><strong>Run individual services without Docker</strong></summary>
+
+Use PostgreSQL, Go 1.26, and Node.js compatible with the package manifests. The container build uses Node.js 24. Run these from separate terminals at the repository root.
 
 ```bash
-# server  (needs Postgres; Go 1.26)
-cd server && DATABASE_URL=postgres://... SNAG_OWNER_EMAIL=you@example.com SNAG_OWNER_PASSWORD=<10+ chars> go run ./cmd/snag
-# widget
-cd widget && npm ci && npm run build      # → dist/widget.min.js (set SNAG_WIDGET_FILE to serve it)
-npm run demo                              # hostile-CSS demo host on :5173
-# dashboard
-cd dashboard && npm ci && cp .env.example .env.local && npm run dev
+# Widget: build once, then serve the demo host
+cd widget
+npm ci
+npm run build
+npm run demo
 ```
-
-Server environment: `DATABASE_URL` (required); `SNAG_OWNER_EMAIL` / `SNAG_OWNER_PASSWORD` / `SNAG_OWNER_NAME` (first start); `SNAG_ADMIN_TOKEN` (optional full-access token for scripts); `SNAG_ADDR` (`:8080`),
-`SNAG_WIDGET_FILE`, `SNAG_MAX_TICKET_MB` (20), `SNAG_CREATE_PER_MINUTE` (10 per project+IP),
-`SNAG_TRUST_PROXY` (only behind a proxy that overwrites `X-Forwarded-For`),
-`SNAG_DEMO_PROJECT_KEY` / `SNAG_DEMO_ORIGINS`.
-
-## How the spec maps to the code
-
-**Telemetry ring buffer**: [widget/src/telemetry.ts](widget/src/telemetry.ts). A fixed
-20-slot circular array, in RAM only. It records clicks, history/hash route changes,
-`console.error`, uncaught errors and rejections, and failed `fetch` and `XMLHttpRequest` calls
-(4xx/5xx and network errors). Query strings are stripped from URLs and input values are never
-recorded. The widget's own API traffic goes through a `fetch` captured before patching, so it
-is never recorded.
-
-**Compression**: [widget/src/compress.ts](widget/src/compress.ts). Images are drawn on an
-`OffscreenCanvas`, scaled to at most 1600px wide and encoded as WebP q0.72, plus a WebP q0.5
-thumbnail inside a 150px box. On Safari versions without a WebP encoder it falls back to JPEG.
-Text, log, CSV, JSON and XML files go through `CompressionStream('gzip')`. Measured: a 133 KB
-PNG becomes a 9 KB WebP with a 1.4 KB thumbnail, and a 34 KB log gzips to 139 B.
-
-**Origin guard**: [server/internal/httpapi/origin.go](server/internal/httpapi/origin.go).
-`X-Project-Key` plus `Origin` (falling back to `Referer`) is checked against
-`projects.allowed_origins`; a mismatch gets 403. Wildcard subdomains (`https://*.acme.com`)
-are supported. Projects are cached in memory, so the check costs no database round-trip.
-
-**Atomic ingest**: `WidgetRepo.CreateTicket` in
-[server/internal/store/widget_repo.go](server/internal/store/widget_repo.go) inserts the
-ticket, the first message and all attachments (as one pipelined batch) in a single
-transaction. The server also checks each attachment's file signature ("magic bytes") against
-its declared type, so a file labelled `image/webp` really is one.
-
-**`is_internal` isolation**: `WidgetRepo` and `AdminRepo` share no queries. Every widget
-query is scoped by `(project_id, reporter_token)` and filters `is_internal = FALSE`, and
-attachments are only visible when they hang off a public message. The SSE publisher also
-refuses internal messages.
-
-**Keyset inbox**: `AdminRepo.ListTickets` uses `WHERE (created_at, id) < ($1,$2)` over a
-matching composite index. Measured at 200k tickets: **1.5–4.6 ms** end-to-end over HTTP,
-whether on the first page, a deep page or a status filter.
-
-**TOAST**: `payload_b64` is stored out of line (`EXTENDED`, lz4), so list and metadata
-queries never read it. `thumbnail_b64` prefers inline storage (`MAIN`).
-
-**SSE broker**: [server/internal/broker/broker.go](server/internal/broker/broker.go) and
-[sse.go](server/internal/httpapi/sse.go). Non-blocking fan-out (slow clients are dropped and
-reconnect), 20s heartbeats, a per-response write-deadline lift, and clean shutdown.
-
-**Dedupe**: linking flattens the hierarchy to one level. Resolving or closing a parent
-cascades to its open duplicates in one transaction and posts a system notice to each reporter.
-"Broadcast" sends one public reply to every linked reporter.
-
-**Dashboard security**: the admin token never reaches the browser. The
-[BFF proxy](dashboard/src/app/api/snag/[...path]/route.ts) forwards only allow-listed paths,
-requires a signed HMAC session cookie, and enforces same-origin + JSON on every mutation.
-
-## Deviations from the blueprint (deliberate)
-
-- **`TIMESTAMPTZ`** instead of `TIMESTAMP`: keyset cursors must be timezone-unambiguous.
-- **`tickets.reporter_token`** (new): an anonymous per-browser secret that scopes "My
-  Tickets". Looking tickets up by `reporter_email` would let anyone read anyone's tickets.
-- **`tickets.scope_class`** (new: `unclassified | bug | change_request`): the blueprint's
-  `category` column (bug/feature/query/amc_request) describes what the *client* reported. AMC
-  coverage is a separate call made by the team, so it gets its own field.
-- **Priority default `P2_Normal`**: the blueprint's `'P2'` default didn't match its own values.
-- `project_id NOT NULL`, CHECK constraints on enum-like columns, `ticket_code` generated from a
-  sequence (`SNAG-1001`…), and message/attachment `created_at` uses `clock_timestamp()` so rows
-  inserted in one transaction keep their order.
-
-## Known limits / next steps
-
-- **Bundle size**: `widget.min.js` is **35 KB minified, 13.9 KB gzipped (12.4 KB brotli)**.
-  Preact + hooks + jsx-runtime alone are ~16.5 KB minified, so a 20 KB *minified* budget can't
-  fit the specified UI. The build gate is set on gzip, which is the transfer size. Getting
-  under 20 KB minified would mean dropping Preact for hand-written DOM code.
-- **Single replica for realtime**: the SSE broker is in-process. Running several server
-  replicas needs Postgres `LISTEN/NOTIFY` (or Redis) behind `Broker.Publish`.
-- **Dashboard sign-in** is email + password. SSO/OIDC and 2FA are not built yet.
-  Users are deactivated rather than deleted, so their replies and notes stay attributed.
-- **Base64 in `TEXT`** follows the spec. Note that LZ-family TOAST compression can't shrink
-  base64 of already-compressed WebP or gzip data, so `BYTEA` would be ~25% smaller on disk.
-- The origin guard is a browser-side control: it stops other sites from using a leaked key,
-  not a script that forges headers. Per-project+IP rate limits cover that case.
-- Electron/`file://` hosts send `Origin: null` and cannot be whitelisted yet.
-
-## Tests
 
 ```bash
-server/scripts/smoke.sh                         # 48 API checks: origin guard, atomic ingest, keyset,
-                                                #   SSE + is_internal isolation, dedupe cascade, projects
-EXPECT_CREATE_LIMIT=5 server/scripts/smoke.sh   # also asserts the 429 rate limit
-server/scripts/rbac.sh                          # 44 checks: roles, permissions, escalation, sessions
-cd e2e && npm i && npm run widget               # 35 browser checks (needs :8080 + demo on :5173)
-npm run dashboard                               # 32 browser checks (needs :8080 + :3000)
-npm run users                                   # 17 browser checks: users, roles grid, restricted views
+# API: provide DATABASE_URL and Owner credentials in your environment
+cd server
+export SNAG_WIDGET_FILE="../widget/dist/widget.min.js"
+go run ./cmd/snag
 ```
+
+```bash
+# Dashboard
+cd dashboard
+npm ci
+cp .env.example .env.local
+npm run dev
+```
+
+The API requires `DATABASE_URL`. On first start, provide `SNAG_OWNER_EMAIL` and `SNAG_OWNER_PASSWORD`. See [`server/internal/config/config.go`](server/internal/config/config.go) for the complete configuration.
+
+</details>
+
+<details>
+<summary><strong>Test suites</strong></summary>
+
+Start the API, dashboard, and demo host first. Set `ADMIN_TOKEN` to the API's configured `SNAG_ADMIN_TOKEN`; set `OWNER_EMAIL` and `OWNER_PASSWORD` to the test Owner's credentials. Use a development database: these suites create and modify records.
+
+```bash
+# From the repository root
+server/scripts/smoke.sh
+server/scripts/rbac.sh
+
+# Optional rate-limit check: configure the server limit to 5 first
+EXPECT_CREATE_LIMIT=5 server/scripts/smoke.sh
+
+cd e2e
+npm ci
+npm run widget
+npm run dashboard
+npm run users
+```
+
+Browser tests use `playwright-core` and require a locally installed Chrome. Check the suite files for browser paths and environment overrides. Screenshots are local test artifacts and stay out of Git.
+
+</details>
+
+<details>
+<summary><strong>Operations and account recovery</strong></summary>
+
+```bash
+docker compose logs -f server   # Follow API logs
+docker compose up --build -d    # Rebuild after changes
+docker compose down            # Stop; retain the database volume
+```
+
+To reset an account password:
+
+```bash
+read -rs -p 'New password: ' SNAG_NEW_PASSWORD; echo
+export SNAG_NEW_PASSWORD
+docker compose run --rm -e SNAG_NEW_PASSWORD server set-password owner@example.com
+unset SNAG_NEW_PASSWORD
+```
+
+Replace the email with the account to reset. `docker compose down -v` deletes the database volume; use it only when you intend to discard that data.
+
+</details>
+
+## Current boundaries
+
+- **One realtime API replica.** Multiple replicas need a shared event transport behind the broker.
+- **Email and password sign-in.** SSO, OIDC, and two-factor authentication are not implemented.
+- **Browser origins only.** Electron and `file://` hosts with a null origin are not supported yet.
+- **Attachments live in PostgreSQL.** Payloads are base64 text; object storage is not part of this implementation.
+
+The origin allowlist protects browser integrations; it is not authentication against clients that can forge headers. Project and IP rate limits are a separate control.
+
+## License
+
+Snag is licensed under the [Apache License 2.0](LICENSE).
+Copyright 2026 Sukhankar. Third-party dependencies retain their own licenses.
