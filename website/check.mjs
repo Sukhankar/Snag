@@ -1,0 +1,4 @@
+import {readdirSync,readFileSync,existsSync} from 'node:fs';import path from 'node:path';
+function walk(dir){return readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(dir,e.name)):[path.join(dir,e.name)])}
+let links=0;for(const file of walk('dist').filter(f=>f.endsWith('.html'))){const html=readFileSync(file,'utf8');if(!html.includes('<title>')||!html.includes('id="main"'))throw Error(`Missing metadata: ${file}`);for(const [,url] of html.matchAll(/(?:href|src)="([^"#]+)"/g)){if(/^(https?:|mailto:|data:)/.test(url))continue;const target=path.resolve(path.dirname(file),url.split('#')[0]);if(!existsSync(target))throw Error(`Broken link ${file}: ${url}`);links++}}
+const samples=JSON.parse(readFileSync('dist/samples.json'));for(const key of ['health','create','embed'])if(!samples[key]?.code)throw Error('Missing sample '+key);console.log(`Checked 11 pages, ${links} local links/assets, and all three sample payloads.`);

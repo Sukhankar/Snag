@@ -1,0 +1,1 @@
+{"name":"snag-site","private":true,"scripts":{"build":"node build.mjs","dev":"python3 -m http.server 4173 --directory dist","test":"node check.mjs"},"license":"Apache-2.0"}

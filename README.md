@@ -20,6 +20,18 @@ The reporter stays in your app. Your team gets the context needed to investigate
 | Open the widget with **Alt+B** or its floating button. Add a screenshot and a description. | Work from an inbox or board. Assign a ticket, set priority, classify coverage, and link duplicates. | Reply to the reporter, keep internal notes private, and broadcast a fix to linked tickets. |
 | The last **20 browser events** travel with the report. | Separate projects keep client work organised. | Replies and status changes arrive through live streams. |
 
+## Website & developer guides
+
+The [website/](website/) directory contains the landing page, getting-started guide, API reference, configuration, testing, deployment, and troubleshooting docs.
+
+```bash
+cd website
+npm run build
+npm test
+npm run dev
+# Open http://localhost:4173
+```
+
 ## Run it locally
 
 Install Docker with Compose. The containers provide Go, Node.js, and PostgreSQL.
