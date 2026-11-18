@@ -10,14 +10,14 @@ export default function LoginPage() {
       <form action={action} className="w-full max-w-sm space-y-4 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div>
           <h1 className="text-lg font-semibold">Snag</h1>
-          <p className="text-sm text-zinc-500">Sign in to the operations dashboard</p>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">Sign in to the operations dashboard</p>
         </div>
         <label className="block space-y-1">
-          <span className="text-xs font-medium text-zinc-500">Email</span>
+          <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Email</span>
           <input name="email" type="email" required autoComplete="username" defaultValue={state.email} className="input" />
         </label>
         <label className="block space-y-1">
-          <span className="text-xs font-medium text-zinc-500">Password</span>
+          <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Password</span>
           <input name="password" type="password" required autoComplete="current-password" autoFocus={!!state.email} className="input" />
         </label>
         {state.error && (
@@ -28,7 +28,7 @@ export default function LoginPage() {
         <button disabled={pending} className="btn-primary w-full">
           {pending ? 'Signing in…' : 'Sign in'}
         </button>
-        <p className="text-[12px] text-zinc-500">No account? Ask your Snag owner or an admin to create one.</p>
+        <p className="text-[12px] text-zinc-600 dark:text-zinc-400">No account? Ask your Snag owner or an admin to create one.</p>
       </form>
     </main>
   );

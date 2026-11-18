@@ -52,7 +52,7 @@ export function Projects() {
       <div className="mx-auto max-w-4xl space-y-8 p-6">
         <header>
           <h1 className="text-lg font-semibold">Projects</h1>
-          <p className="text-zinc-500">Each client deployment gets a project key. Widget requests are accepted only from its whitelisted origins.</p>
+          <p className="text-zinc-600 dark:text-zinc-400">Each client deployment gets a project key. Widget requests are accepted only from its whitelisted origins.</p>
         </header>
 
         {error && (
@@ -86,7 +86,7 @@ export function Projects() {
         </form>
         )}
 
-        <label className="flex items-center gap-2 text-[12px] text-zinc-500">
+        <label className="flex items-center gap-2 text-[12px] text-zinc-600 dark:text-zinc-400">
           Snag API URL for snippets
           <input
             className="input max-w-xs"
@@ -113,7 +113,7 @@ export function Projects() {
                 {can('teams.manage') && (
                   <span className="flex gap-1.5 text-[11px]">
                     <button
-                      className="text-indigo-600 hover:underline"
+                      className="text-indigo-600 dark:text-indigo-400 hover:underline"
                       aria-label={`Rename team ${t.name}`}
                       onClick={() => {
                         const name = prompt('Team name', t.name)?.trim();
@@ -143,7 +143,7 @@ export function Projects() {
                 )}
               </li>
             ))}
-            {teams.length === 0 && <li className="text-zinc-500">No teams yet.</li>}
+            {teams.length === 0 && <li className="text-zinc-600 dark:text-zinc-400">No teams yet.</li>}
           </ul>
           {can('teams.manage') && (
           <form
@@ -180,7 +180,7 @@ function ProjectCard({ p, apiUrl, manage, onChange, run }: { p: Project; apiUrl:
   };
 
   return (
-    <li className={`rounded-lg border border-zinc-200 p-4 dark:border-zinc-800 ${p.is_active ? '' : 'opacity-60'}`}>
+    <li className={`rounded-lg border border-zinc-200 p-4 dark:border-zinc-800 ${p.is_active ? '' : 'bg-zinc-50 dark:bg-zinc-900'}`}>
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="font-semibold">{p.name}</h3>
         {!p.is_active && <span className="rounded bg-zinc-200 px-1.5 text-[11px] dark:bg-zinc-800">Disabled</span>}
@@ -209,7 +209,7 @@ function ProjectCard({ p, apiUrl, manage, onChange, run }: { p: Project; apiUrl:
             </button>
           </div>
           <span className="label mt-3 block">Embed snippet</span>
-          <pre className="overflow-x-auto rounded bg-zinc-950 p-2 font-mono text-[11px] text-zinc-200">{snippet(p, apiUrl)}</pre>
+          <pre tabIndex={0} aria-label="Widget installation snippet" className="overflow-x-auto rounded bg-zinc-950 p-2 font-mono text-[11px] text-zinc-200">{snippet(p, apiUrl)}</pre>
           <button className="btn" onClick={() => copy('snippet', snippet(p, apiUrl))}>
             {copied === 'snippet' ? 'Copied' : 'Copy snippet'}
           </button>

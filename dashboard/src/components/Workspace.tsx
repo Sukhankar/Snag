@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type TicketPatch } from '@/lib/client';
 import { bytes, CATEGORY_LABEL, fullTime, PRIORITY_LABEL, relTime, SCOPE_LABEL, STATUS_LABEL } from '@/lib/format';
 import type { AttachmentMeta, DirectoryEntry, Scope, Team, TicketDetail, TicketEvent, TicketSummary } from '@/lib/types';
@@ -30,12 +30,20 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const generation = useStreamGeneration();
+  const pendingSave = useRef(false);
+  const activeID = useRef(id);
+  activeID.current = id;
+  const loadVersion = useRef(0);
 
   const load = useCallback(
-    (signal?: AbortSignal) =>
-      api.getTicket(id, signal).then(setT, (e) => {
-        if (e.name !== 'AbortError') setError(e.message);
-      }),
+    (signal?: AbortSignal) => {
+      const version = ++loadVersion.current;
+      return api.getTicket(id, signal).then((ticket) => {
+        if (activeID.current === id && version === loadVersion.current) { setT(ticket); setError(''); }
+      }, (e) => {
+        if (activeID.current === id && version === loadVersion.current && e.name !== 'AbortError') setError(e.message);
+      });
+    },
     [id],
   );
 
@@ -66,25 +74,33 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
   });
 
   const update = async (patch: TicketPatch) => {
-    if (!t) return;
+    if (!t || pendingSave.current) return;
+    pendingSave.current = true;
+    ++loadVersion.current;
     const before = t;
-    setT({ ...t, ...patch } as TicketDetail);
+    const optimistic = { ...t, ...patch } as TicketDetail;
+    setT(optimistic);
     setSaving(true);
     setError('');
     try {
       const summary = await api.patchTicket(id, patch);
+      if (activeID.current !== id) return;
       setT((cur) => (cur ? { ...cur, ...summary } : cur));
       load(); // duplicates, cascades and the activity log
     } catch (e) {
-      setT(before);
+      if (activeID.current !== id) return;
+      setT((current) => current === optimistic ? before : current);
+      await load();
+      if (activeID.current !== id) return;
       setError((e as Error).message);
     } finally {
+      pendingSave.current = false;
       setSaving(false);
     }
   };
 
-  if (!t) {
-    return <div className="m-auto text-zinc-500">{error || 'Loading…'}</div>;
+  if (!t || t.id !== id) {
+    return <div className="m-auto text-zinc-600 dark:text-zinc-400">{error || 'Loading…'}</div>;
   }
 
   const images = t.attachments;
@@ -93,7 +109,7 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
       {/* ---------- left pane: metadata & evidence ---------- */}
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
         <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/95 px-4 py-2.5 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/95">
-          <div className="flex items-center gap-2 text-[12px] text-zinc-500">
+          <div className="flex items-center gap-2 text-[12px] text-zinc-600 dark:text-zinc-400">
             <button onClick={onBack} className="xl:hidden" aria-label="Back to inbox">
               ←
             </button>
@@ -105,10 +121,10 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
             <span className="ml-auto" title={t.created_at}>
               {fullTime(t.created_at)}
             </span>
-            {saving && <span className="text-indigo-600">Saving…</span>}
+            {saving && <span className="text-indigo-600 dark:text-indigo-400">Saving…</span>}
           </div>
           <h1 className="mt-1 text-base leading-snug font-semibold">{t.title}</h1>
-          <p className="text-[12px] text-zinc-500">
+          <p className="text-[12px] text-zinc-600 dark:text-zinc-400">
             {t.reporter_name || 'Anonymous'}
             {t.reporter_email && (
               <>
@@ -130,7 +146,7 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
 
           <section className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <Field label="Status">
-              <select className="select w-full" disabled={!can('tickets.update')} value={t.status} onChange={(e) => update({ status: e.target.value as TicketSummary['status'] })}>
+              <select className="select w-full" disabled={saving || !can('tickets.update')} value={t.status} onChange={(e) => update({ status: e.target.value as TicketSummary['status'] })}>
                 {STATUSES.map((s) => (
                   <option key={s} value={s}>
                     {STATUS_LABEL[s]}
@@ -139,7 +155,7 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
               </select>
             </Field>
             <Field label="Priority">
-              <select className="select w-full" disabled={!can('tickets.update')} value={t.priority} onChange={(e) => update({ priority: e.target.value as TicketSummary['priority'] })}>
+              <select className="select w-full" disabled={saving || !can('tickets.update')} value={t.priority} onChange={(e) => update({ priority: e.target.value as TicketSummary['priority'] })}>
                 {PRIORITIES.map((p) => (
                   <option key={p} value={p}>
                     {PRIORITY_LABEL[p]}
@@ -148,7 +164,7 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
               </select>
             </Field>
             <Field label="Category">
-              <select className="select w-full" disabled={!can('tickets.update')} value={t.category} onChange={(e) => update({ category: e.target.value as TicketSummary['category'] })}>
+              <select className="select w-full" disabled={saving || !can('tickets.update')} value={t.category} onChange={(e) => update({ category: e.target.value as TicketSummary['category'] })}>
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>
                     {CATEGORY_LABEL[c]}
@@ -157,7 +173,7 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
               </select>
             </Field>
             <Field label="Team">
-              <select className="select w-full" disabled={!can('tickets.update')} value={t.team_id ?? ''} onChange={(e) => update({ team_id: e.target.value || null })}>
+              <select className="select w-full" disabled={saving || !can('tickets.update')} value={t.team_id ?? ''} onChange={(e) => update({ team_id: e.target.value || null })}>
                 <option value="">No team</option>
                 {teams.map((tm) => (
                   <option key={tm.id} value={tm.id}>
@@ -167,7 +183,7 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
               </select>
             </Field>
             <Field label="Assignee">
-              <select className="select w-full" disabled={!can('tickets.assign')} value={t.assignee_id ?? ''} onChange={(e) => update({ assignee_id: e.target.value || null })}>
+              <select className="select w-full" disabled={saving || !can('tickets.assign')} value={t.assignee_id ?? ''} onChange={(e) => update({ assignee_id: e.target.value || null })}>
                 <option value="">Unassigned</option>
                 {t.assignee_id && !people.some((p) => p.id === t.assignee_id) && <option value={t.assignee_id}>(inactive user)</option>}
                 {people.map((p) => (
@@ -187,12 +203,12 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
                   key={o.value}
                   role="radio"
                   aria-checked={t.scope_class === o.value}
-                  disabled={!can('tickets.classify')}
+                  disabled={saving || !can('tickets.classify')}
                   onClick={() => update({ scope_class: o.value })}
                   className={`rounded-md px-2 py-1.5 text-left disabled:cursor-not-allowed ${t.scope_class === o.value ? o.active : 'hover:bg-zinc-100 disabled:hover:bg-transparent dark:hover:bg-zinc-800'}`}
                 >
                   <span className="block text-[12px] font-semibold">{o.title}</span>
-                  <span className={`block text-[11px] ${t.scope_class === o.value ? 'opacity-85' : 'text-zinc-500'}`}>{o.hint}</span>
+                  <span className={`block text-[11px] ${t.scope_class === o.value ? 'opacity-85' : 'text-zinc-600 dark:text-zinc-400'}`}>{o.hint}</span>
                 </button>
               ))}
             </div>
@@ -267,7 +283,7 @@ function AttachmentTile({ a, onOpen }: { a: AttachmentMeta; onOpen: () => void }
         // eslint-disable-next-line @next/next/no-img-element
         <img src={`data:image/webp;base64,${a.thumbnail_b64}`} alt={a.file_name} className="size-full object-cover transition group-hover:scale-105" />
       ) : (
-        <span className="flex size-full flex-col items-center justify-center gap-1 p-1 text-[10px] break-all text-zinc-500">
+        <span className="flex size-full flex-col items-center justify-center gap-1 p-1 text-[10px] break-all text-zinc-600 dark:text-zinc-400">
           <span className="text-lg">{a.mime_type === 'application/pdf' ? '📄' : '🗒️'}</span>
           {a.file_name}
         </span>
@@ -353,7 +369,7 @@ function Dedupe({
   return (
     <section className="space-y-2">
       <h2 className="label">Deduplication</h2>
-      {!canLink && t.duplicates.length === 0 && <p className="text-[12px] text-zinc-500">No linked duplicates.</p>}
+      {!canLink && t.duplicates.length === 0 && <p className="text-[12px] text-zinc-600 dark:text-zinc-400">No linked duplicates.</p>}
       <div className={canLink ? 'relative' : 'hidden'}>
         <input className="input" placeholder="Link as duplicate of… (search code or title)" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Find parent ticket" />
         {results.length > 0 && (
@@ -367,9 +383,9 @@ function Dedupe({
                     setQ('');
                   }}
                 >
-                  <span className="font-mono text-[11px] text-zinc-500">{r.ticket_code}</span>
+                  <span className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400">{r.ticket_code}</span>
                   <span className="truncate">{r.title}</span>
-                  <span className="ml-auto text-[11px] text-zinc-500">{r.project_name}</span>
+                  <span className="ml-auto text-[11px] text-zinc-600 dark:text-zinc-400">{r.project_name}</span>
                 </button>
               </li>
             ))}
@@ -407,7 +423,7 @@ function Dedupe({
               Broadcast
             </button>
           </div>
-          {notice && <p className="mt-1 text-[12px] text-zinc-500">{notice}</p>}
+          {notice && <p className="mt-1 text-[12px] text-zinc-600 dark:text-zinc-400">{notice}</p>}
         </div>
       )}
     </section>
@@ -440,7 +456,7 @@ function Activity({ events }: { events: TicketEvent[] }) {
     <section>
       <h2 className="label mb-1.5">Activity · {events.length}</h2>
       {events.length > shown.length && (
-        <button className="mb-1 text-[12px] text-indigo-600 hover:underline" onClick={() => setAll(true)}>
+        <button className="mb-1 text-[12px] text-indigo-600 dark:text-indigo-400 hover:underline" onClick={() => setAll(true)}>
           Show {events.length - shown.length} earlier changes
         </button>
       )}
@@ -460,7 +476,7 @@ function Activity({ events }: { events: TicketEvent[] }) {
               <strong className="font-medium">{eventValue(e.field, e.new_value)}</strong>
               {e.note && <> · {e.note}</>}
             </span>{' '}
-            <span className="text-zinc-400" title={fullTime(e.created_at)}>
+            <span className="text-zinc-600 dark:text-zinc-400" title={fullTime(e.created_at)}>
               · {relTime(e.created_at)} ago
             </span>
           </li>

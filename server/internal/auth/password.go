@@ -40,7 +40,7 @@ func HashPassword(password string) (string, error) {
 // VerifyPassword checks password against an encoded hash in constant time.
 func VerifyPassword(password, encoded string) bool {
 	parts := strings.Split(encoded, "$")
-	if len(parts) != 6 || parts[1] != "argon2id" {
+	if len(parts) != 6 || parts[1] != "argon2id" || parts[2] != "v=19" {
 		return false
 	}
 	var m uint32
@@ -49,9 +49,13 @@ func VerifyPassword(password, encoded string) bool {
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &p); err != nil {
 		return false
 	}
+	// Reject corrupt parameters before Argon2 can panic or allocate excessive memory.
+	if t < 1 || t > 10 || p < 1 || p > 16 || m < 8*uint32(p) || m > 256*1024 {
+		return false
+	}
 	salt, err1 := b64.DecodeString(parts[4])
 	want, err2 := b64.DecodeString(parts[5])
-	if err1 != nil || err2 != nil || len(want) == 0 {
+	if err1 != nil || err2 != nil || len(want) != argonKeyLen || len(salt) != saltLen {
 		return false
 	}
 	got := argon2.IDKey([]byte(password), salt, t, m, p, uint32(len(want)))

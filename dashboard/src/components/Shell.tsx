@@ -27,7 +27,7 @@ const NAV: NavItem[] = [
 function LiveDot() {
   const live = useStreamStatus();
   return (
-    <span className="flex items-center gap-1.5 text-[11px] text-zinc-500" title={live ? 'Live updates connected' : 'Reconnecting…'}>
+    <span className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-400" title={live ? 'Live updates connected' : 'Reconnecting…'}>
       <span className={`size-1.5 rounded-full ${live ? 'bg-emerald-500' : 'animate-pulse bg-amber-500'}`} />
       {live ? 'Live' : 'Offline'}
     </span>
@@ -48,7 +48,7 @@ export function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
   const body = (
     <div className="flex h-dvh flex-col md:flex-row">
       <nav className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-zinc-200 bg-zinc-50 px-2 py-1.5 md:w-48 md:flex-col md:items-stretch md:border-r md:border-b-0 md:px-2 md:py-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-        <div className="mr-2 px-2 font-semibold tracking-tight text-indigo-600 md:mr-0 md:mb-3">Snag</div>
+        <div className="mr-2 px-2 font-semibold tracking-tight text-indigo-600 dark:text-indigo-400 md:mr-0 md:mb-3">Snag</div>
         {nav.map((n) => {
           const active = n.href === '/' ? path === '/' : path.startsWith(n.href);
           return (
@@ -72,13 +72,13 @@ export function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
               {me.is_owner && <span title="Owner — full access">👑 </span>}
               {me.name}
             </span>
-            <span className="block truncate text-[11px] text-zinc-500">{me.is_owner ? 'Owner' : me.role_name}</span>
+            <span className="block truncate text-[11px] text-zinc-600 dark:text-zinc-400">{me.is_owner ? 'Owner' : me.role_name}</span>
           </Link>
-          <Link href="/account" className="text-[12px] text-zinc-500 md:hidden">
+          <Link href="/account" className="text-[12px] text-zinc-600 dark:text-zinc-400 md:hidden">
             Account
           </Link>
           <form action={logout}>
-            <button className="text-[12px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">Sign out</button>
+            <button className="text-[12px] text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100">Sign out</button>
           </form>
         </div>
       </nav>

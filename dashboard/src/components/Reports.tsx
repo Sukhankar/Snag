@@ -87,7 +87,7 @@ export function Reports() {
         <header className="flex flex-wrap items-end gap-3">
           <div>
             <h1 className="text-lg font-semibold">AMC report</h1>
-            <p className="text-zinc-500">Tickets created in the period, split into contract-covered bugs and billable change requests.</p>
+            <p className="text-zinc-600 dark:text-zinc-400">Tickets created in the period, split into contract-covered bugs and billable change requests.</p>
           </div>
           <button className="btn ml-auto" onClick={downloadCsv} disabled={!rows?.length}>
             Download CSV
@@ -110,7 +110,7 @@ export function Reports() {
               </button>
             ))}
           </div>
-          <label className="flex items-center gap-1 text-[12px] text-zinc-500">
+          <label className="flex items-center gap-1 text-[12px] text-zinc-600 dark:text-zinc-400">
             From
             <input
               type="date"
@@ -123,7 +123,7 @@ export function Reports() {
               }}
             />
           </label>
-          <label className="flex items-center gap-1 text-[12px] text-zinc-500">
+          <label className="flex items-center gap-1 text-[12px] text-zinc-600 dark:text-zinc-400">
             To
             <input
               type="date"
@@ -161,7 +161,7 @@ export function Reports() {
 
         <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
           <table className="w-full text-left tabular-nums">
-            <thead className="bg-zinc-50 text-[11px] tracking-wide text-zinc-500 uppercase dark:bg-zinc-900">
+            <thead className="bg-zinc-50 text-[11px] tracking-wide text-zinc-600 dark:text-zinc-400 uppercase dark:bg-zinc-900">
               <tr>
                 <th className="px-3 py-2 font-semibold">Project</th>
                 <th className="px-3 py-2 text-right font-semibold">Tickets</th>
@@ -177,14 +177,14 @@ export function Reports() {
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {rows === null && !error && (
                 <tr>
-                  <td colSpan={9} className="px-3 py-6 text-center text-zinc-500">
+                  <td colSpan={9} className="px-3 py-6 text-center text-zinc-600 dark:text-zinc-400">
                     Loading…
                   </td>
                 </tr>
               )}
               {rows?.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-3 py-6 text-center text-zinc-500">
+                  <td colSpan={9} className="px-3 py-6 text-center text-zinc-600 dark:text-zinc-400">
                     No tickets were created in this period.
                   </td>
                 </tr>
@@ -207,7 +207,7 @@ export function Reports() {
             </tbody>
           </table>
         </div>
-        <p className="text-[12px] text-zinc-500">
+        <p className="text-[12px] text-zinc-600 dark:text-zinc-400">
           Resolution time runs from when a ticket was reported to its first move to Resolved or Closed, and is only known for changes made since the activity log was introduced. Duplicates are counted as separate reports
           {total.duplicates ? ` (${total.duplicates} in this period)` : ''}.
         </p>
@@ -222,7 +222,7 @@ function Stat({ label, value, hint, tone }: { label: string; value: number; hint
     <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
       <div className="label">{label}</div>
       <div className={`mt-1 text-2xl font-semibold tabular-nums ${color}`}>{value}</div>
-      {hint && <div className="text-[12px] text-zinc-500">{hint}</div>}
+      {hint && <div className="text-[12px] text-zinc-600 dark:text-zinc-400">{hint}</div>}
     </div>
   );
 }

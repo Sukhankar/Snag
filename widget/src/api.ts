@@ -99,6 +99,11 @@ export class Api {
   /** Live updates for this reporter. EventSource reconnects on its own. */
   stream(on: (event: string, data: any) => void): () => void {
     const es = new EventSource(`${this.base}/stream?key=${encodeURIComponent(this.key)}&token=${encodeURIComponent(this.token)}`);
+    let connected = false;
+    es.addEventListener('ready', () => {
+      if (connected) on('reconnected', {});
+      connected = true;
+    });
     for (const ev of ['ticket.created', 'ticket.updated', 'message.created']) {
       es.addEventListener(ev, (e) => {
         try {

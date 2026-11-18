@@ -62,7 +62,7 @@ export function Users() {
         <header className="flex flex-wrap items-end gap-3">
           <div>
             <h1 className="text-lg font-semibold">Users</h1>
-            <p className="text-zinc-500">Everyone who can sign in to Snag. What each person can do comes from their role.</p>
+            <p className="text-zinc-600 dark:text-zinc-400">Everyone who can sign in to Snag. What each person can do comes from their role.</p>
           </div>
           <button className="btn-primary ml-auto" onClick={() => setCreating((c) => !c)} aria-expanded={creating}>
             {creating ? 'Cancel' : '+ New user'}
@@ -91,7 +91,7 @@ export function Users() {
 
         <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
           <table className="w-full text-left">
-            <thead className="bg-zinc-50 text-[11px] tracking-wide text-zinc-500 uppercase dark:bg-zinc-900">
+            <thead className="bg-zinc-50 text-[11px] tracking-wide text-zinc-600 dark:text-zinc-400 uppercase dark:bg-zinc-900">
               <tr>
                 <th className="px-3 py-2 font-semibold">User</th>
                 <th className="px-3 py-2 font-semibold">Role</th>
@@ -108,7 +108,7 @@ export function Users() {
                 const self = u.id === me.id;
                 return (
                   <Fragment key={u.id}>
-                  <tr className={u.is_active ? '' : 'opacity-60'}>
+                  <tr className={u.is_active ? '' : 'bg-zinc-50 dark:bg-zinc-900'}>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2.5">
                         <span className={`grid size-8 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${u.is_owner ? 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300'}`}>
@@ -117,9 +117,9 @@ export function Users() {
                         <div className="min-w-0">
                           <div className="font-medium">
                             {u.name}
-                            {self && <span className="ml-1.5 text-[11px] font-normal text-zinc-500">(you)</span>}
+                            {self && <span className="ml-1.5 text-[11px] font-normal text-zinc-600 dark:text-zinc-400">(you)</span>}
                           </div>
-                          <div className="truncate text-[12px] text-zinc-500">{u.email}</div>
+                          <div className="truncate text-[12px] text-zinc-600 dark:text-zinc-400">{u.email}</div>
                         </div>
                       </div>
                     </td>
@@ -160,7 +160,7 @@ export function Users() {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-[12px] text-zinc-500">{u.last_login_at ? relTime(u.last_login_at) + ' ago' : 'Never'}</td>
+                    <td className="px-3 py-2.5 text-[12px] text-zinc-600 dark:text-zinc-400">{u.last_login_at ? relTime(u.last_login_at) + ' ago' : 'Never'}</td>
                     <td className="px-3 py-2.5">
                       {editable && (
                         <div className="flex justify-end gap-1.5">
@@ -211,10 +211,10 @@ export function Users() {
             </tbody>
           </table>
         </div>
-        <p className="text-[12px] text-zinc-500">
+        <p className="text-[12px] text-zinc-600 dark:text-zinc-400">
           Deactivated users keep their history (replies and notes stay attributed) but can&apos;t sign in. Manage what each role can do on the{' '}
           {me.permissions.includes('roles.manage') ? (
-            <a className="text-indigo-600 hover:underline" href="/roles">
+            <a className="text-indigo-600 dark:text-indigo-400 hover:underline" href="/roles">
               Roles
             </a>
           ) : (
@@ -272,7 +272,7 @@ function CreateUser({ roles, onCreated, onError }: { roles: Role[]; onCreated: (
             </option>
           ))}
         </select>
-        {role && <span className="block text-[11px] text-zinc-500">{role.description || `${role.permissions.length} permissions`}</span>}
+        {role && <span className="block text-[11px] text-zinc-600 dark:text-zinc-400">{role.description || `${role.permissions.length} permissions`}</span>}
       </label>
       <label className="space-y-1">
         <span className="label">Temporary password</span>
@@ -282,7 +282,7 @@ function CreateUser({ roles, onCreated, onError }: { roles: Role[]; onCreated: (
             Generate
           </button>
         </div>
-        <span className="block text-[11px] text-zinc-500">At least 10 characters. They can change it under My account.</span>
+        <span className="block text-[11px] text-zinc-600 dark:text-zinc-400">At least 10 characters. They can change it under My account.</span>
       </label>
       <div className="sm:col-span-2">
         <button className="btn-primary" disabled={busy || !roleId}>
@@ -303,9 +303,9 @@ function CredentialsCard({ title, email, password, onClose }: { title: string; e
           <p className="font-semibold text-emerald-900 dark:text-emerald-200">{title}</p>
           <p className="mt-0.5 text-[12px] text-emerald-800 dark:text-emerald-300">Share these credentials securely — the password is not shown again. They will be asked to choose their own password when they first sign in.</p>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 font-mono text-[12px]">
-            <dt className="text-zinc-500">Email</dt>
+            <dt className="text-zinc-600 dark:text-zinc-400">Email</dt>
             <dd>{email}</dd>
-            <dt className="text-zinc-500">Password</dt>
+            <dt className="text-zinc-600 dark:text-zinc-400">Password</dt>
             <dd className="select-all">{password}</dd>
           </dl>
         </div>

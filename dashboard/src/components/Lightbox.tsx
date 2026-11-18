@@ -43,8 +43,9 @@ export function Lightbox({ attachment, onClose, onStep }: { attachment: Attachme
         }
         if (!cancelled) setState(result);
       },
-      (e) => !cancelled && setState({ kind: 'error', msg: e.message }),
-    );
+    ).catch((e) => {
+      if (!cancelled) setState({ kind: 'error', msg: e instanceof Error ? e.message : 'Unable to decode attachment' });
+    });
     return () => {
       cancelled = true;
     };
@@ -73,7 +74,7 @@ export function Lightbox({ attachment, onClose, onStep }: { attachment: Attachme
     <div role="dialog" aria-modal="true" aria-label={attachment.file_name} className="fixed inset-0 z-50 flex flex-col bg-black/85 backdrop-blur-sm" onClick={onClose}>
       <div className="flex items-center gap-3 px-4 py-2 text-[13px] text-zinc-200" onClick={(e) => e.stopPropagation()}>
         <span className="truncate font-medium">{attachment.file_name}</span>
-        <span className="text-zinc-400">
+        <span className="text-zinc-600 dark:text-zinc-400">
           {attachment.mime_type} · {attachment.compression_type} · {bytes(attachment.compressed_size)} stored
         </span>
         <div className="ml-auto flex gap-2">
@@ -96,7 +97,7 @@ export function Lightbox({ attachment, onClose, onStep }: { attachment: Attachme
         </div>
       </div>
       <div className="flex min-h-0 flex-1 items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
-        {!state && <span className="text-zinc-400">Loading…</span>}
+        {!state && <span className="text-zinc-600 dark:text-zinc-400">Loading…</span>}
         {state?.kind === 'error' && <span className="text-red-300">{state.msg}</span>}
         {state?.kind === 'image' && (
           // eslint-disable-next-line @next/next/no-img-element

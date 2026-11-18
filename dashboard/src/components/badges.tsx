@@ -6,7 +6,7 @@ export function StatusBadge({ status }: { status: Status }) {
 }
 
 export function PriorityDot({ priority }: { priority: Priority }) {
-  return <span title={PRIORITY_LABEL[priority]} aria-label={PRIORITY_LABEL[priority]} className={`inline-block size-2 shrink-0 rounded-full ${PRIORITY_DOT[priority]}`} />;
+  return <span role="img" title={PRIORITY_LABEL[priority]} aria-label={PRIORITY_LABEL[priority]} className={`inline-block size-2 shrink-0 rounded-full ${PRIORITY_DOT[priority]}`} />;
 }
 
 export function ScopeChip({ scope }: { scope: 'unclassified' | 'bug' | 'change_request' }) {

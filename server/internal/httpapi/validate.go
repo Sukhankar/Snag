@@ -8,6 +8,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/snag/server/internal/store"
 )
@@ -74,7 +75,7 @@ func checkMagic(mime, compression string, b []byte) bool {
 	case "application/pdf":
 		return bytes.HasPrefix(b, magicPDF)
 	default: // uncompressed text: must be valid UTF-8 without NULs
-		return !bytes.ContainsRune(b, 0)
+		return utf8.Valid(b) && !bytes.ContainsRune(b, 0)
 	}
 }
 

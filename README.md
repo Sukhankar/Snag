@@ -151,7 +151,7 @@ For query isolation, attachment validation, origin checks, and storage details, 
 <details>
 <summary><strong>Run individual services without Docker</strong></summary>
 
-Use PostgreSQL, Go 1.26, and Node.js compatible with the package manifests. The container build uses Node.js 24. Run these from separate terminals at the repository root.
+Use PostgreSQL, Go 1.26.11 or newer, and Node.js compatible with the package manifests. The container build uses Node.js 24. Run these from separate terminals at the repository root.
 
 ```bash
 # Widget: build once, then serve the demo host

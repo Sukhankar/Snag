@@ -1,8 +1,8 @@
 // Browser E2E for the dashboard (with the widget driving live events).
 import { chromium } from 'playwright-core';
 
-const DASH = 'http://localhost:3000';
-const API = 'http://localhost:8080';
+const DASH = process.env.DASH_URL || 'http://localhost:3000';
+const API = process.env.SNAG_URL || 'http://localhost:8080';
 const KEY = 'pk_demo_0000000000000000000000000000';
 const OWNER_EMAIL = process.env.OWNER_EMAIL || 'owner@example.com';
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD || 'change-me-now-please';
@@ -15,7 +15,7 @@ const shot = (p, name) => p.screenshot({ path: new URL(`./screenshots/${name}.pn
 const widget = (path, token, body) =>
   fetch(`${API}/api/v1/widget${path}`, {
     method: body ? 'POST' : 'GET',
-    headers: { Origin: 'http://localhost:5173', 'X-Project-Key': KEY, 'X-Reporter-Token': token, 'Content-Type': 'application/json' },
+    headers: { Origin: process.env.WIDGET_URL || 'http://localhost:5173', 'X-Project-Key': KEY, 'X-Reporter-Token': token, 'Content-Type': 'application/json' },
     body: body && JSON.stringify(body),
   }).then((r) => r.json());
 
@@ -82,7 +82,10 @@ await page.click('button:has-text("Add note")');
 await page.waitForSelector('text=Root cause: ESC/POS driver regression');
 await page.click('role=radio[name="Public reply"]');
 await page.fill('textarea[aria-label="Public reply"]', 'Thanks — a hotfix is on the way.');
-await page.keyboard.press('Control+Enter');
+await Promise.all([
+  page.waitForResponse(r => r.url().includes('/messages') && r.request().method() === 'POST' && r.ok()),
+  page.keyboard.press('Control+Enter'),
+]);
 await page.waitForSelector('text=Thanks — a hotfix is on the way.');
 const clientView = await widget('/tickets/' + created.ticket_code, token);
 check('client sees public reply', clientView.messages.some((m) => m.body.includes('hotfix')));

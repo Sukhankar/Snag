@@ -2,7 +2,7 @@
 // that user's restricted view). Needs the stack on :8080 / :3000.
 import { chromium } from 'playwright-core';
 
-const DASH = 'http://localhost:3000';
+const DASH = process.env.DASH_URL || 'http://localhost:3000';
 const OWNER_EMAIL = process.env.OWNER_EMAIL || 'owner@example.com';
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD || 'change-me-now-please';
 const RUN = Date.now().toString(36);

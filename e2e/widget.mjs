@@ -1,7 +1,7 @@
 // Browser E2E for the widget against the live Go server.
 import { chromium } from 'playwright-core';
 
-const API = 'http://localhost:8080';
+const API = process.env.SNAG_URL || 'http://localhost:8080';
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 if (!ADMIN_TOKEN) throw new Error('Set ADMIN_TOKEN to the configured SNAG_ADMIN_TOKEN');
 const ADMIN = { Authorization: `Bearer ${ADMIN_TOKEN}`, 'Content-Type': 'application/json' };
@@ -24,7 +24,7 @@ await page.addInitScript(() => {
   };
 });
 
-await page.goto('http://localhost:5173/');
+await page.goto((process.env.WIDGET_URL || 'http://localhost:5173') + '/');
 await page.waitForFunction(() => window.__rcRoot && window.__rcRoot.querySelector('.fab'));
 const q = (sel) => page.evaluateHandle((s) => window.__rcRoot.querySelector(s), sel);
 const text = () => page.evaluate(() => window.__rcRoot.textContent);
@@ -117,14 +117,14 @@ check('thumbnail ≲ 6 KB', thumbBytes < 6144, thumbBytes);
 const ev = t.telemetry.events;
 const kinds = ev.map((e) => e.k);
 check('telemetry: console.error captured', ev.some((e) => e.k === 'console' && e.msg.includes('Payment gateway timeout')));
-check('telemetry: fetch 404/500 captured, query stripped', ev.some((e) => e.k === 'http' && e.m === 'GET' && e.url === 'http://localhost:8080/api/v1/does-not-exist'), JSON.stringify(ev.filter((e) => e.k === 'http')));
+check('telemetry: fetch 404/500 captured, query stripped', ev.some((e) => e.k === 'http' && e.m === 'GET' && e.url === API + '/api/v1/does-not-exist'), JSON.stringify(ev.filter((e) => e.k === 'http')));
 check('telemetry: XHR 404 captured', ev.some((e) => e.k === 'http' && e.url === '/missing.json' && e.status === 404));
 check('telemetry: route change, query stripped', ev.some((e) => e.k === 'route' && e.to === '/orders/42'));
 check('telemetry: uncaught error captured', ev.some((e) => e.k === 'error' && e.msg.includes('reading "total"')));
 check('telemetry: clicks captured', ev.some((e) => e.k === 'click' && e.el.startsWith('button#err')));
 check('telemetry: widget\'s own API calls excluded', !ev.some((e) => e.k === 'http' && e.url.includes('/api/v1/widget')));
 check('telemetry: ≤ 20 events', ev.length <= 20, ev.length);
-check('telemetry: env captured', t.telemetry.env?.url === 'http://localhost:5173/orders/42' && !!t.telemetry.env.ua);
+check('telemetry: env captured', t.telemetry.env?.url === (process.env.WIDGET_URL || 'http://localhost:5173') + '/orders/42' && !!t.telemetry.env.ua);
 
 console.log('== live thread over SSE');
 await page.evaluate(() => [...window.__rcRoot.querySelectorAll('button')].find((b) => b.textContent === 'View ticket').click());
@@ -170,6 +170,7 @@ await page.waitForTimeout(100);
 check('tap opens full-screen panel on mobile', await page.evaluate(() => { const p = window.__rcRoot.querySelector('.panel'); return !!p && p.getBoundingClientRect().width === 390; }));
 await page.screenshot({ path: new URL('./screenshots/widget-mobile.png', import.meta.url).pathname });
 
+check('mobile panel fits viewport after dragging FAB', await page.evaluate(() => { const r = window.__rcRoot.querySelector('.panel').getBoundingClientRect(); return r.left === 0 && r.top === 0 && r.right <= innerWidth && r.bottom <= innerHeight; }));
 check('no uncaught widget errors', pageErrors.every((m) => m.includes('reading "total"')), JSON.stringify(pageErrors));
 await browser.close();
 console.log(`\npassed: ${pass}  failed: ${fail}`);

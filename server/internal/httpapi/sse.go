@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/snag/server/internal/auth"
 	"github.com/snag/server/internal/broker"
 	"github.com/snag/server/internal/store"
 )
@@ -13,6 +14,21 @@ const sseHeartbeat = 20 * time.Second
 
 // serveSSE streams broker frames for topic until the client disconnects or the broker closes.
 func (s *Server) serveSSE(w http.ResponseWriter, r *http.Request, topic string, allowRestricted bool) {
+	checkAccess := func() bool {
+		if topic != broker.AdminTopic || me(r).Service {
+			return true
+		}
+		u, err := s.users.SessionUser(r.Context(), auth.TokenDigest(bearer(r)))
+		if err != nil {
+			return false
+		}
+		p := toPrincipal(u)
+		allowRestricted = p.can("tickets.note")
+		return !p.MustChangePassword && p.can("tickets.view")
+	}
+	if !checkAccess() {
+		return
+	}
 	rc := http.NewResponseController(w)
 	// Long-lived stream: lift the server-wide write deadline for this response only.
 	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
@@ -49,6 +65,9 @@ func (s *Server) serveSSE(w http.ResponseWriter, r *http.Request, topic string, 
 			if !ok { // dropped as a slow consumer, or server shutting down
 				return
 			}
+			if !checkAccess() {
+				return
+			}
 			if f.Restricted && !allowRestricted {
 				continue
 			}
@@ -65,6 +84,9 @@ func (s *Server) serveSSE(w http.ResponseWriter, r *http.Request, topic string, 
 						flush()
 						return
 					}
+					if !checkAccess() {
+						return
+					}
 					if f.Restricted && !allowRestricted {
 						continue
 					}
@@ -79,6 +101,9 @@ func (s *Server) serveSSE(w http.ResponseWriter, r *http.Request, topic string, 
 				return
 			}
 		case <-tick.C:
+			if !checkAccess() {
+				return
+			}
 			bw.WriteString(": ping\n\n")
 			if !flush() {
 				return

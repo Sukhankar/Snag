@@ -44,7 +44,7 @@ export function Conversation({ ticket, onSent, onOpenAttachment }: { ticket: Tic
     <>
       <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
         <span className="label">Conversation</span>
-        <span className="text-[11px] text-zinc-400">
+        <span className="text-[11px] text-zinc-600 dark:text-zinc-400">
           {ticket.messages.filter((m) => m.is_internal).length} internal · {ticket.messages.filter((m) => !m.is_internal).length} public
         </span>
       </div>
@@ -54,7 +54,7 @@ export function Conversation({ ticket, onSent, onOpenAttachment }: { ticket: Tic
           const atts = byMessage.get(m.id);
           if (m.author_type === 'system') {
             return (
-              <li key={m.id} className={`text-center text-[11px] ${m.is_internal ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-500'}`}>
+              <li key={m.id} className={`text-center text-[11px] ${m.is_internal ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-600 dark:text-zinc-400'}`}>
                 {m.is_internal && '🔒 '}
                 {m.body} · {relTime(m.created_at)}
               </li>
@@ -89,7 +89,7 @@ export function Conversation({ ticket, onSent, onOpenAttachment }: { ticket: Tic
                   </span>
                 )}
               </div>
-              <span className="mt-0.5 text-[10px] text-zinc-400" title={fullTime(m.created_at)}>
+              <span className="mt-0.5 text-[10px] text-zinc-600 dark:text-zinc-400" title={fullTime(m.created_at)}>
                 {client ? ticket.reporter_name || 'Client' : m.author_id || 'Support'} · {relTime(m.created_at)}
               </span>
             </li>
@@ -99,7 +99,7 @@ export function Conversation({ ticket, onSent, onOpenAttachment }: { ticket: Tic
       </ol>
 
       {!canReply && !canNote ? (
-        <p className="border-t border-zinc-200 p-3 text-center text-[12px] text-zinc-500 dark:border-zinc-800">You have read-only access to this conversation.</p>
+        <p className="border-t border-zinc-200 p-3 text-center text-[12px] text-zinc-600 dark:text-zinc-400 dark:border-zinc-800">You have read-only access to this conversation.</p>
       ) : (
       <div className={`border-t p-3 ${internal ? 'border-amber-300 bg-amber-50/60 dark:border-amber-500/30 dark:bg-amber-500/5' : 'border-zinc-200 dark:border-zinc-800'}`}>
         <div className="mb-2 flex gap-1 rounded-md bg-zinc-100 p-0.5 text-[12px] dark:bg-zinc-800" role="radiogroup" aria-label="Message visibility">
@@ -109,7 +109,7 @@ export function Conversation({ ticket, onSent, onOpenAttachment }: { ticket: Tic
             disabled={!canReply}
             title={canReply ? undefined : 'Your role cannot reply to clients'}
             onClick={() => setInternal(false)}
-            className={`flex-1 rounded px-2 py-1 font-medium ${!internal ? 'bg-white text-indigo-700 shadow-sm dark:bg-zinc-900 dark:text-indigo-300' : 'text-zinc-500'}`}
+            className={`flex-1 rounded px-2 py-1 font-medium ${!internal ? 'bg-white text-indigo-700 shadow-sm dark:bg-zinc-900 dark:text-indigo-300' : 'text-zinc-600 dark:text-zinc-400'}`}
           >
             Public reply
           </button>
@@ -119,7 +119,7 @@ export function Conversation({ ticket, onSent, onOpenAttachment }: { ticket: Tic
             disabled={!canNote}
             title={canNote ? undefined : 'Your role cannot write internal notes'}
             onClick={() => setInternal(true)}
-            className={`flex-1 rounded px-2 py-1 font-medium ${internal ? 'bg-white text-amber-700 shadow-sm dark:bg-zinc-900 dark:text-amber-400' : 'text-zinc-500'}`}
+            className={`flex-1 rounded px-2 py-1 font-medium ${internal ? 'bg-white text-amber-700 shadow-sm dark:bg-zinc-900 dark:text-amber-400' : 'text-zinc-600 dark:text-zinc-400'}`}
           >
             🔒 Internal note
           </button>
@@ -143,7 +143,7 @@ export function Conversation({ ticket, onSent, onOpenAttachment }: { ticket: Tic
           </p>
         )}
         <div className="mt-2 flex items-center">
-          <span className="text-[11px] text-zinc-500">{internal ? 'Only your team can see this.' : 'The client will see this instantly.'} Ctrl+Enter to send.</span>
+          <span className="text-[11px] text-zinc-600 dark:text-zinc-400">{internal ? 'Only your team can see this.' : 'The client will see this instantly.'} Ctrl+Enter to send.</span>
           <button
             onClick={send}
             disabled={sending || !body.trim()}

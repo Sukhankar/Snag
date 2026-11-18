@@ -2,6 +2,8 @@
 services:
   postgres:
     image: postgres:17
+    # Reachable from this computer only (e.g. pgAdmin): localhost:5433. Host 5432 is another project's.
+    ports: ["127.0.0.1:5433:5432"]
     environment:
       POSTGRES_USER: snag
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}

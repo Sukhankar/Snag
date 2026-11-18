@@ -70,7 +70,7 @@ export function Roles() {
         <header className="flex flex-wrap items-end gap-3">
           <div>
             <h1 className="text-lg font-semibold">Roles &amp; permissions</h1>
-            <p className="text-zinc-500">Tick a box to grant a permission to everyone in that role. Changes apply immediately, even to people already signed in.</p>
+            <p className="text-zinc-600 dark:text-zinc-400">Tick a box to grant a permission to everyone in that role. Changes apply immediately, even to people already signed in.</p>
           </div>
           <button className="btn-primary ml-auto" onClick={() => setCreating((c) => !c)} aria-expanded={creating}>
             {creating ? 'Cancel' : '+ New role'}
@@ -99,7 +99,7 @@ export function Roles() {
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="bg-zinc-50 dark:bg-zinc-900">
-                <th className="sticky left-0 z-10 min-w-[260px] bg-zinc-50 px-3 py-2 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase dark:bg-zinc-900">
+                <th className="sticky left-0 z-10 min-w-[260px] bg-zinc-50 px-3 py-2 text-[11px] font-semibold tracking-wide text-zinc-600 dark:text-zinc-400 uppercase dark:bg-zinc-900">
                   Permission
                 </th>
                 {roles.map((r) => (
@@ -108,17 +108,17 @@ export function Roles() {
                       {r.is_system && '👑 '}
                       {r.name}
                     </div>
-                    <div className="text-[11px] font-normal text-zinc-500">
+                    <div className="text-[11px] font-normal text-zinc-600 dark:text-zinc-400">
                       {r.user_count} {r.user_count === 1 ? 'user' : 'users'}
                       {saving === r.id && ' · saving…'}
                     </div>
                     {editableRole(r) && (
                       <div className="mt-1 flex justify-center gap-2 text-[11px] font-normal">
-                        <button className="text-indigo-600 hover:underline" onClick={() => rename(r)}>
+                        <button className="text-indigo-600 dark:text-indigo-400 hover:underline" onClick={() => rename(r)}>
                           Rename
                         </button>
                         <button
-                          className="text-red-600 hover:underline disabled:cursor-not-allowed disabled:text-zinc-400 disabled:no-underline"
+                          className="text-red-600 dark:text-red-400 hover:underline disabled:cursor-not-allowed disabled:text-zinc-400 disabled:no-underline"
                           disabled={r.user_count > 0}
                           title={r.user_count > 0 ? 'Move its users to another role first' : 'Delete role'}
                           onClick={() => remove(r)}
@@ -135,7 +135,7 @@ export function Roles() {
               {groups.map((g) => (
                 <Fragment key={g}>
                   <tr>
-                    <td colSpan={roles.length + 1} className="bg-zinc-100/70 px-3 py-1 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase dark:bg-zinc-800/50">
+                    <td colSpan={roles.length + 1} className="bg-zinc-100/70 px-3 py-1 text-[11px] font-semibold tracking-wide text-zinc-600 dark:text-zinc-400 uppercase dark:bg-zinc-800/50">
                       <span className="sticky left-3">{g}</span>
                     </td>
                   </tr>
@@ -145,7 +145,7 @@ export function Roles() {
                       <tr key={p.key} className="border-t border-zinc-100 dark:border-zinc-800">
                         <td className="sticky left-0 z-10 bg-white px-3 py-2 dark:bg-zinc-950">
                           <div className="font-medium">{p.label}</div>
-                          <div className="text-[11px] text-zinc-500">{p.description}</div>
+                          <div className="text-[11px] text-zinc-600 dark:text-zinc-400">{p.description}</div>
                         </td>
                         {roles.map((r) => {
                           const on = r.is_system || r.permissions.includes(p.key);
@@ -171,7 +171,7 @@ export function Roles() {
             </tbody>
           </table>
         </div>
-        <p className="text-[12px] text-zinc-500">
+        <p className="text-[12px] text-zinc-600 dark:text-zinc-400">
           The 👑 Owner role belongs to the ultimate user and always has every permission. You can only grant permissions you have yourself.
         </p>
       </div>

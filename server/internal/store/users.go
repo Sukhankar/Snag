@@ -82,7 +82,7 @@ func (r *UserRepo) CreateUser(ctx context.Context, email, name, hash, roleID str
 		return User{}, ErrConflict
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23001") {
 		return User{}, &ValidationError{"role not found"}
 	}
 	if err != nil {
@@ -188,7 +188,7 @@ func (r *UserRepo) UpdateUser(ctx context.Context, id string, p UserPatch, keepS
 		return User{}, ErrConflict
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23001") {
 		return User{}, &ValidationError{"role not found"}
 	}
 	if err != nil {
@@ -319,7 +319,7 @@ func (r *UserRepo) UpdateRole(ctx context.Context, id string, name *string, desc
 func (r *UserRepo) DeleteRole(ctx context.Context, id string) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM roles WHERE id = $1 AND NOT is_system`, id)
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23001") {
 		return ErrConflict // still assigned to users
 	}
 	if err != nil {

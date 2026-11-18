@@ -77,6 +77,11 @@ export function Inbox() {
   const listRef = useRef<HTMLUListElement>(null);
   const effective = { ...filters, q: debouncedQ };
   const key = JSON.stringify(effective);
+  const queryIdentity = `${key}:${generation}`;
+  const activeQuery = useRef(queryIdentity);
+  activeQuery.current = queryIdentity;
+  const pagePending = useRef<string | null>(null);
+  const firstReadEvents = useRef<Map<string, TicketSummary> | null>(null);
 
   useEffect(() => {
     api.projects().then(setProjects, () => {});
@@ -91,30 +96,48 @@ export function Inbox() {
   // First page whenever filters change.
   useEffect(() => {
     const ctrl = new AbortController();
+    const live = new Map<string, TicketSummary>();
+    firstReadEvents.current = live;
     setLoading(true);
     setError('');
     api.listTickets(toParams(effective), ctrl.signal).then(
       (page) => {
-        setItems(page.items);
+        if (ctrl.signal.aborted || activeQuery.current !== queryIdentity) return;
+        // Preserve stream events newer than the list snapshot being loaded.
+        const merged = new Map(page.items.map((t) => [t.id, t]));
+        for (const t of live.values()) {
+          if (matches(t, effective, me.id)) merged.set(t.id, t);
+          else merged.delete(t.id);
+        }
+        setItems([...merged.values()].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)));
+        if (firstReadEvents.current === live) firstReadEvents.current = null;
         setCursor(page.next_cursor);
         setLoading(false);
       },
       (e) => {
-        if (e.name !== 'AbortError') {
+        if (firstReadEvents.current === live) firstReadEvents.current = null;
+        if (!ctrl.signal.aborted && e.name !== 'AbortError') {
           setError(e.message);
           setLoading(false);
         }
       },
     );
-    return () => ctrl.abort();
+    return () => {
+      ctrl.abort();
+      if (firstReadEvents.current === live) firstReadEvents.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, generation]);
 
   const loadMore = useCallback(() => {
-    if (!cursor || loading) return;
+    if (!cursor || loading || pagePending.current === queryIdentity) return;
+    const query = queryIdentity;
+    pagePending.current = query;
     setLoading(true);
     api.listTickets({ ...toParams(effective), cursor }).then(
       (page) => {
+        if (pagePending.current === query) pagePending.current = null;
+        if (activeQuery.current !== query) return;
         setItems((xs) => {
           const seen = new Set(xs.map((x) => x.id));
           return [...xs, ...page.items.filter((x) => !seen.has(x.id))];
@@ -123,12 +146,14 @@ export function Inbox() {
         setLoading(false);
       },
       (e) => {
+        if (pagePending.current === query) pagePending.current = null;
+        if (activeQuery.current !== query) return;
         setError(e.message);
         setLoading(false);
       },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cursor, loading, key]);
+  }, [cursor, loading, queryIdentity]);
 
   // Keyset "infinite scroll".
   useEffect(() => {
@@ -140,6 +165,7 @@ export function Inbox() {
   }, [loadMore]);
 
   useSnagEvents((e) => {
+    if (e.type === 'ticket.created' || e.type === 'ticket.updated') firstReadEvents.current?.set(e.data.id, e.data);
     if (e.type === 'ticket.created') {
       if (!matches(e.data, effective, me.id)) return;
       setItems((xs) => (xs.some((x) => x.id === e.data.id) ? xs : [e.data, ...xs]));
@@ -243,20 +269,20 @@ export function Inbox() {
               >
                 <div className="flex items-center gap-2">
                   <PriorityDot priority={t.priority} />
-                  <span className="font-mono text-[11px] text-zinc-500">{t.ticket_code}</span>
+                  <span className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400">{t.ticket_code}</span>
                   {fresh.has(t.id) && <span className="rounded bg-indigo-600 px-1 text-[10px] font-semibold text-white">NEW</span>}
-                  <span className="truncate text-[11px] text-zinc-500">{t.project_name}</span>
-                  <span className="ml-auto shrink-0 text-[11px] text-zinc-400" title={t.created_at}>
+                  <span className="truncate text-[11px] text-zinc-600 dark:text-zinc-400">{t.project_name}</span>
+                  <span className="ml-auto shrink-0 text-[11px] text-zinc-600 dark:text-zinc-400" title={t.created_at}>
                     {relTime(t.created_at)}
                   </span>
                 </div>
                 <div className="mt-0.5 flex items-center gap-2">
                   <span className={`truncate ${t.status === 'new' ? 'font-semibold' : ''}`}>{t.title}</span>
                 </div>
-                <div className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-500">
+                <div className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-400">
                   <StatusBadge status={t.status} />
                   <ScopeChip scope={t.scope_class} />
-                  {t.parent_ticket_id && <span className="text-zinc-400">duplicate</span>}
+                  {t.parent_ticket_id && <span className="text-zinc-600 dark:text-zinc-400">duplicate</span>}
                   {t.duplicate_count > 0 && (
                     <span className="rounded bg-zinc-100 px-1 dark:bg-zinc-800" title="Linked duplicates">
                       ×{t.duplicate_count + 1} reports
@@ -273,13 +299,13 @@ export function Inbox() {
               </button>
             </li>
           ))}
-          {!loading && items.length === 0 && !error && <li className="p-8 text-center text-zinc-500">No tickets match these filters.</li>}
+          {!loading && items.length === 0 && !error && <li className="p-8 text-center text-zinc-600 dark:text-zinc-400">No tickets match these filters.</li>}
           {error && (
             <li className="p-4 text-center text-red-600" role="alert">
               {error}
             </li>
           )}
-          <li ref={sentinel} className="p-3 text-center text-[11px] text-zinc-400">
+          <li ref={sentinel} className="p-3 text-center text-[11px] text-zinc-600 dark:text-zinc-400">
             {loading ? 'Loading…' : cursor ? '' : items.length > 0 ? 'End of inbox' : ''}
           </li>
         </ul>
@@ -289,9 +315,9 @@ export function Inbox() {
         {selected ? (
           <Workspace key={selected} id={selected} onBack={() => select(null)} onOpen={select} />
         ) : (
-          <div className="m-auto text-center text-zinc-500">
+          <div className="m-auto text-center text-zinc-600 dark:text-zinc-400">
             <p className="text-sm">Select a ticket to triage</p>
-            <p className="mt-1 text-[12px] text-zinc-400">
+            <p className="mt-1 text-[12px] text-zinc-600 dark:text-zinc-400">
               <kbd className="rounded border px-1">j</kbd> / <kbd className="rounded border px-1">k</kbd> to move through the inbox
             </p>
           </div>

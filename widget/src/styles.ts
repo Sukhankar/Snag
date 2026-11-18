@@ -18,7 +18,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .fab svg{width:24px;height:24px}
 .badge{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#dc2626;color:#fff;font-size:11px;font-weight:700;display:grid;place-items:center}
 .panel{position:fixed;right:16px;bottom:80px;width:380px;max-width:calc(100vw - 32px);height:min(600px,calc(100vh - 100px));background:var(--bg);border:1px solid var(--bd);border-radius:14px;box-shadow:var(--sh);display:flex;flex-direction:column;overflow:hidden}
-@media (max-width:480px){.panel{inset:0;width:100%;max-width:none;height:100%;border-radius:0;border:0}}
+@media (max-width:480px){.panel{inset:0!important;width:100%;max-width:none;height:100%;border-radius:0;border:0}}
 .hd{display:flex;align-items:center;gap:4px;padding:10px 12px;border-bottom:1px solid var(--bd)}
 .tab{padding:6px 10px;border-radius:8px;color:var(--mu);font-weight:500}
 .tab[aria-selected=true]{background:var(--sf);color:var(--fg)}

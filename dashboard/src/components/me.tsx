@@ -26,7 +26,7 @@ export function useCan(): (perm: string) => boolean {
 
 export function NoAccess({ what }: { what: string }) {
   return (
-    <div className="m-auto max-w-sm p-10 text-center text-zinc-500">
+    <div className="m-auto max-w-sm p-10 text-center text-zinc-600 dark:text-zinc-400">
       <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">You don&apos;t have access to {what}.</p>
       <p className="mt-1 text-[12px]">Ask the owner or an admin to add the permission to your role.</p>
     </div>

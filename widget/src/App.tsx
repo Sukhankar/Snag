@@ -55,7 +55,13 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
 
   const [pos, setPos] = useState<Pos>(() => {
     try {
-      return JSON.parse(store('fab') || '') as Pos;
+      const saved = JSON.parse(store('fab') || '') as unknown;
+      if (saved && typeof saved === 'object' && 'side' in saved && 'y' in saved &&
+          (saved.side === 'l' || saved.side === 'r') &&
+          typeof saved.y === 'number' && Number.isFinite(saved.y)) {
+        return { side: saved.side, y: Math.max(12, Math.min(saved.y, Math.max(12, window.innerHeight - 68))) };
+      }
+      return { side: 'r', y: 24 };
     } catch {
       return { side: 'r', y: 24 };
     }
@@ -70,7 +76,23 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
 
   bus.toggle = (v) => setOpen((o) => v ?? !o);
 
+  const navigation = useRef(0);
+  const requestedThread = useRef('');
+  const threadRequest = useRef(0);
+  const refreshThread = (code: string) => {
+    const request = ++threadRequest.current;
+    return api.getTicket(code).then((data) => {
+      if (request === threadRequest.current && requestedThread.current === code) setThread(data);
+    }, (e) => {
+      if (request === threadRequest.current && requestedThread.current === code) setErr(e.message);
+    });
+  };
+
   const reset = () => {
+    navigation.current++;
+    threadRequest.current++;
+    setPending(0);
+    setReply('');
     setAtts([]);
     setErr('');
   };
@@ -79,15 +101,20 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
     reset();
     setDone('');
     setTab(t);
-    if (t === 'list') api.listTickets().then(setTickets, (e) => setErr(e.message));
+    requestedThread.current = '';
+    const version = navigation.current;
+    if (t === 'list') api.listTickets().then((data) => {
+      if (version === navigation.current) setTickets(data);
+    }, (e) => { if (version === navigation.current) setErr(e.message); });
   };
 
   const openThread = (code: string) => {
     reset();
     setTab('thread');
+    requestedThread.current = code;
     setThread(null);
     setUnread((u) => u.filter((c) => c !== code));
-    api.getTicket(code).then(setThread, (e) => setErr(e.message));
+    refreshThread(code);
   };
 
   // Realtime: connect once the user has opened the widget or has tickets from before.
@@ -95,7 +122,11 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
     if (streamOff.current) return;
     streamOff.current = api.stream((ev, d) => {
       const v = view.current;
-      if (ev === 'message.created') {
+      if (ev === 'reconnected') {
+        const version = navigation.current;
+        api.listTickets().then((data) => { if (version === navigation.current) setTickets(data); }, (e) => { if (version === navigation.current) setErr(e.message); });
+        if (requestedThread.current) refreshThread(requestedThread.current);
+      } else if (ev === 'message.created') {
         const m = d.message as Message;
         const viewing = v.open && v.tab === 'thread' && v.code === d.ticket_code;
         if (viewing) setThread((t) => (t && !t.messages.some((x) => x.id === m.id) ? { ...t, messages: [...t.messages, m] } : t));
@@ -111,7 +142,7 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
 
   useEffect(() => {
     if (store('has:' + api.key)) connect();
-    return () => streamOff.current?.();
+    return () => { navigation.current++; threadRequest.current++; streamOff.current?.(); };
   }, []);
 
   useEffect(() => {
@@ -121,6 +152,7 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
   }, [open]);
 
   const addFiles = async (files: File[]) => {
+    const version = navigation.current;
     setErr('');
     const room = 10 - atts.length - pending;
     if (files.length > room) setErr('You can attach up to 10 files.');
@@ -130,11 +162,11 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
       try {
         const named = f.name === 'image.png' ? new File([f], `screenshot-${Date.now()}.png`, { type: f.type }) : f;
         const a = await processFile(named);
-        setAtts((xs) => [...xs, a]);
+        if (version === navigation.current) setAtts((xs) => [...xs, a]);
       } catch (e) {
-        setErr((e as Error).message);
+        if (version === navigation.current) setErr((e as Error).message);
       } finally {
-        setPending((p) => p - 1);
+        if (version === navigation.current) setPending((p) => p - 1);
       }
     }
   };
@@ -162,6 +194,7 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
     if (!title.trim() || busy || pending) return;
     setBusy(true);
     setErr('');
+    const version = navigation.current;
     try {
       store('name', name);
       store('email', email);
@@ -180,12 +213,13 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
       );
       store('has:' + api.key, '1');
       connect();
+      if (version !== navigation.current) return;
       setDone(r.ticket_code);
       setTitle('');
       setDesc('');
       setAtts([]);
     } catch (e) {
-      setErr((e as Error).message);
+      if (version === navigation.current) setErr((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -196,14 +230,17 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
     if (!thread || !reply.trim() || busy || pending) return;
     setBusy(true);
     setErr('');
+    const version = navigation.current;
     try {
       const m = await api.reply(thread.ticket_code, reply.trim(), atts);
-      setThread((t) => (t && !t.messages.some((x) => x.id === m.id) ? { ...t, messages: [...t.messages, m] } : t));
+      if (version !== navigation.current) return;
+      setThread((t) => (t && t.ticket_code === thread.ticket_code && !t.messages.some((x) => x.id === m.id) ? { ...t, messages: [...t.messages, m] } : t));
       setReply('');
-      if (atts.length) api.getTicket(thread.ticket_code).then(setThread);
+      await refreshThread(thread.ticket_code);
+      if (version !== navigation.current) return;
       setAtts([]);
     } catch (e) {
-      setErr((e as Error).message);
+      if (version === navigation.current) setErr((e as Error).message);
     } finally {
       setBusy(false);
     }

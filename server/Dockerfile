@@ -8,7 +8,7 @@ RUN npm ci --no-audit --no-fund
 COPY widget/ ./
 RUN npm run build
 
-FROM golang:1.26-alpine AS server
+FROM golang:1.26.11-alpine AS server
 WORKDIR /src
 COPY server/go.mod server/go.sum ./
 RUN go mod download

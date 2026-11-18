@@ -345,6 +345,15 @@ func (r *AdminRepo) UpdateTicket(ctx context.Context, id string, p TicketPatch) 
 	}
 	defer rollback(ctx, tx)
 
+	// Graph rewrites and completion cascades can lock overlapping families in
+	// opposite orders. Serialize those operations before taking any row locks.
+	// This transaction-scoped lock also coordinates independent API processes.
+	if p.ParentSet || (p.Status != nil && finalStatuses[*p.Status]) {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(1936613735, 1)`); err != nil {
+			return res, err
+		}
+	}
+
 	var (
 		code, oldStatus, oldPriority, oldCategory, oldScope string
 		oldTeam, oldAssignee, oldParent                     *string
@@ -387,6 +396,9 @@ func (r *AdminRepo) UpdateTicket(ctx context.Context, id string, p TicketPatch) 
 		set("assignee_id", p.AssigneeID)
 	}
 
+	cascadeID, cascadeCode := id, code
+	cascadeStatus := p.Status
+	var cascadeOnly []string
 	if p.ParentSet {
 		if p.ParentID == nil {
 			set("parent_ticket_id", nil)
@@ -402,6 +414,30 @@ func (r *AdminRepo) UpdateTicket(ctx context.Context, id string, p TicketPatch) 
 			}
 			if rootID == id {
 				return res, &ValidationError{"cannot link a ticket to itself or to one of its own duplicates"}
+			}
+			var rootStatus string
+			if err := tx.QueryRow(ctx, `SELECT status FROM tickets WHERE id = $1`, rootID).Scan(&rootStatus); err != nil {
+				return res, err
+			}
+			if finalStatuses[rootStatus] {
+				cascadeID, cascadeCode, cascadeStatus = rootID, rootCode, &rootStatus
+				cascadeOnly = []string{id}
+				rows, err := tx.Query(ctx, `SELECT id FROM tickets WHERE parent_ticket_id = $1`, id)
+				if err != nil {
+					return res, err
+				}
+				for rows.Next() {
+					var child string
+					if err := rows.Scan(&child); err != nil {
+						rows.Close()
+						return res, err
+					}
+					cascadeOnly = append(cascadeOnly, child)
+				}
+				rows.Close()
+				if err := rows.Err(); err != nil {
+					return res, err
+				}
 			}
 			set("parent_ticket_id", rootID)
 			// Re-home this ticket's own duplicates so the hierarchy stays one level deep.
@@ -451,11 +487,12 @@ func (r *AdminRepo) UpdateTicket(ctx context.Context, id string, p TicketPatch) 
 		return res, ev.err
 	}
 
-	if p.Status != nil && *p.Status != oldStatus && finalStatuses[*p.Status] {
+	if cascadeStatus != nil && finalStatuses[*cascadeStatus] {
 		rows, err := tx.Query(ctx, `
 			UPDATE tickets SET status = $2
 			WHERE parent_ticket_id = $1 AND status NOT IN ('resolved', 'closed')
-			RETURNING id, ticket_code, project_id, reporter_token`, id, *p.Status)
+            AND ($3::uuid[] IS NULL OR id = ANY($3::uuid[]))
+			RETURNING id, ticket_code, project_id, reporter_token`, cascadeID, *cascadeStatus, cascadeOnly)
 		if err != nil {
 			return res, err
 		}
@@ -473,20 +510,20 @@ func (r *AdminRepo) UpdateTicket(ctx context.Context, id string, p TicketPatch) 
 			return res, err
 		}
 		verb := "resolved"
-		if *p.Status == "closed" {
+		if *cascadeStatus == "closed" {
 			verb = "closed"
 		}
 		for _, c := range children {
-			body := fmt.Sprintf("This issue has been %s. It was tracked together with %s, reported by other users as well.", verb, code)
+			body := fmt.Sprintf("This issue has been %s. It was tracked together with %s, reported by other users as well.", verb, cascadeCode)
 			m, err := addMessage(ctx, tx, c.TicketID, "system", "", body, false)
 			if err != nil {
 				return res, err
 			}
-			note := "Follows " + code
-			if err := insertEvent(ctx, tx, c.TicketID, p.ActorID, "status", nil, p.Status, &note); err != nil {
+			note := "Follows " + cascadeCode
+			if err := insertEvent(ctx, tx, c.TicketID, p.ActorID, "status", nil, cascadeStatus, &note); err != nil {
 				return res, err
 			}
-			res.Notices = append(res.Notices, Notice{Audience: c, Status: *p.Status, Message: m})
+			res.Notices = append(res.Notices, Notice{Audience: c, Status: *cascadeStatus, Message: m})
 		}
 	}
 

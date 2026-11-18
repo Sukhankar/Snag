@@ -28,11 +28,11 @@ export function Account() {
 
         <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
-            <dt className="text-zinc-500">Name</dt>
+            <dt className="text-zinc-600 dark:text-zinc-400">Name</dt>
             <dd className="font-medium">{me.name}</dd>
-            <dt className="text-zinc-500">Email</dt>
+            <dt className="text-zinc-600 dark:text-zinc-400">Email</dt>
             <dd>{me.email}</dd>
-            <dt className="text-zinc-500">Role</dt>
+            <dt className="text-zinc-600 dark:text-zinc-400">Role</dt>
             <dd>{me.is_owner ? '👑 Owner — full access to everything' : me.role_name}</dd>
           </dl>
           <div className="mt-3">
