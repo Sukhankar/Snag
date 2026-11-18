@@ -46,12 +46,18 @@ type Project struct {
 	AllowedOrigins []string  `json:"allowed_origins"`
 	IsActive       bool      `json:"is_active"`
 	CreatedAt      time.Time `json:"created_at"`
+	// Signed reporter identities (see migration 0004). The secret is derived, never stored.
+	IdentityEnabled   bool       `json:"identity_enabled"`
+	IdentityRequired  bool       `json:"identity_required"`
+	IdentityRotatedAt *time.Time `json:"identity_rotated_at"`
+	IdentityVersion   int        `json:"-"`
 }
 
 type Team struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Description *string `json:"description"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description *string  `json:"description"`
+	MemberIDs   []string `json:"member_ids"` // users in the team (a user can be in several)
 }
 
 // TicketSummary is the lightweight inbox row: no description, telemetry or attachments.

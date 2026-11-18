@@ -23,6 +23,7 @@ From `e2e`, after installing locked dependencies:
 npm run dashboard
 npm run widget
 npm run users
+npm run teams
 npm run regressions
 npm run website
 npm run performance
@@ -30,6 +31,8 @@ npm run accessibility
 ```
 
 `regressions` requires explicit URLs and an admin token. It covers duplicate completion, the 25 admin status transitions, live permission changes, logout/deactivation while streaming, attachment decoding failure, rejected optimistic saves, and widget reconnect/navigation recovery. Errors are injected through browser routes; no production failure hooks are added.
+
+`teams` creates teams with members, puts one person in several teams, adds and removes members, renames, refuses duplicate names, edits teams from the Users page and checks that a ticket's assignee list shows its team first. It needs `ADMIN_TOKEN` and leaves throwaway users named `team-asha-*` / `team-ravi-*` (no delete API; remove them with psql).
 
 `website` covers all public routes, actual 404 responses, responsive overflow, appearance, preference expiry, cross-tab synchronization, offline caching and withdrawal, and documentation search.
 

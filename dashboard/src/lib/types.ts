@@ -118,12 +118,18 @@ export interface Project {
   allowed_origins: string[];
   is_active: boolean;
   created_at: string;
+  /** Signed reporter identities (users recognised across browsers). */
+  identity_enabled: boolean;
+  identity_required: boolean;
+  identity_rotated_at: string | null;
 }
 
 export interface Team {
   id: string;
   name: string;
   description: string | null;
+  /** Users in the team. A user can belong to several teams. */
+  member_ids: string[];
 }
 
 export interface Page<T> {
@@ -150,6 +156,8 @@ export interface User {
   created_at: string;
   /** Set when an admin chose the password; the user must replace it before doing anything else. */
   must_change_password: boolean;
+  /** Teams the user belongs to (user list and user detail only). */
+  team_ids?: string[];
 }
 
 /** The signed-in user; `permissions` are effective (the owner gets every key). */

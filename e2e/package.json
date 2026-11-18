@@ -7,6 +7,7 @@
     "widget": "mkdir -p screenshots && node widget.mjs",
     "dashboard": "mkdir -p screenshots && node dashboard.mjs",
     "users": "mkdir -p screenshots && node users.mjs",
+    "teams": "mkdir -p screenshots && node teams.mjs",
     "regressions": "node state-regressions.mjs",
     "website": "node website.mjs",
     "performance": "node performance.mjs",

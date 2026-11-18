@@ -23,6 +23,7 @@ type Server struct {
 	users    *store.UserRepo
 	cache    *ProjectCache
 	broker   *broker.Broker
+	streams  *streamTickets
 }
 
 func New(cfg config.Config, pool *pgxpool.Pool, b *broker.Broker) *Server {
@@ -40,6 +41,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, b *broker.Broker) *Server {
 }
 
 func (s *Server) Routes(ctx context.Context) http.Handler {
+	s.streams = newStreamTickets(ctx)
 	r := chi.NewRouter()
 	r.Use(recoverer, accessLog, securityHeaders)
 
@@ -61,6 +63,7 @@ func (s *Server) Routes(ctx context.Context) http.Handler {
 			r.Get("/tickets", s.widgetListTickets)
 			r.Get("/tickets/{code}", s.widgetGetTicket)
 			r.Post("/tickets/{code}/messages", s.widgetPostMessage)
+			r.Post("/stream-ticket", s.widgetStreamTicket)
 			r.Get("/stream", s.widgetStream)
 		})
 	})
@@ -97,9 +100,13 @@ func (s *Server) Routes(ctx context.Context) http.Handler {
 		r.With(need("projects.view")).Get("/projects", s.adminListProjects)
 		r.With(need("projects.manage")).Post("/projects", s.adminCreateProject)
 		r.With(need("projects.manage")).Patch("/projects/{id}", s.adminPatchProject)
+		r.With(need("projects.manage")).Post("/projects/{id}/identity-secret", s.adminRotateIdentity)
+		r.With(need("projects.manage")).Delete("/projects/{id}/identity-secret", s.adminDisableIdentity)
 		r.With(need("teams.manage")).Post("/teams", s.adminCreateTeam)
 		r.With(need("teams.manage")).Patch("/teams/{id}", s.adminPatchTeam)
 		r.With(need("teams.manage")).Delete("/teams/{id}", s.adminDeleteTeam)
+		r.With(need("teams.manage")).Put("/teams/{id}/members", s.adminSetTeamMembers)
+		r.With(need("teams.manage")).Put("/users/{id}/teams", s.adminSetUserTeams)
 		r.With(view).Get("/reports/amc", s.adminAMCReport)
 
 		r.With(need("users.manage")).Get("/users", s.adminListUsers)

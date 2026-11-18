@@ -19,6 +19,7 @@ const NAV: NavItem[] = [
   { href: '/', label: 'Inbox', icon: 'M3 13h4l2 3h6l2-3h4M5 5h14l2 8v6H3v-6z', perms: ['tickets.view'] },
   { href: '/board', label: 'Board', icon: 'M4 4h4v16H4zM10 4h4v10h-4zM16 4h4v13h-4z', perms: ['tickets.view'] },
   { href: '/projects', label: 'Projects', icon: 'M3 7h7l2 2h9v10H3zM3 7V5h7', perms: ['projects.view'] },
+  { href: '/teams', label: 'Teams', icon: 'M12 12a3 3 0 100-6 3 3 0 000 6zM5 10a2 2 0 100-4 2 2 0 000 4zM19 10a2 2 0 100-4 2 2 0 000 4zM7 19v-1a5 5 0 0110 0v1M1 18v-.5A3.5 3.5 0 015.5 14M23 18v-.5a3.5 3.5 0 00-4.5-3.5', perms: ['tickets.view'] },
   { href: '/users', label: 'Users', icon: 'M16 19v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1M9 10a3 3 0 100-6 3 3 0 000 6zM22 19v-1a4 4 0 00-3-3.9M16 4.1a3 3 0 010 5.8', perms: ['users.manage'] },
   { href: '/reports', label: 'Reports', icon: 'M4 20V10M10 20V4M16 20v-7M22 20H2', perms: ['tickets.view'] },
   { href: '/roles', label: 'Roles', icon: 'M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z M9 12l2 2 4-4', perms: ['roles.manage'] },

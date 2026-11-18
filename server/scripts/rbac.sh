@@ -119,6 +119,14 @@ expect "bad assignee filter → 400" "$(code "$DEV2" GET '/api/v1/admin/tickets?
 TEAM=$(body "$OWNER" POST /api/v1/admin/teams "{\"name\":\"rbac-team-$RUN\"}" | jq -r .id)
 code "$OWNER" PATCH "/api/v1/admin/tickets/$TID" "{\"team_id\":\"$TEAM\"}" >/dev/null
 expect "developer cannot rename teams" "$(code "$DEV2" PATCH "/api/v1/admin/teams/$TEAM" '{"name":"x"}')" 403
+expect "developer cannot change team members" "$(code "$DEV2" PUT "/api/v1/admin/teams/$TEAM/members" "{\"user_ids\":[\"$DEV_ID\"]}")" 403
+expect "developer cannot change a user's teams" "$(code "$DEV2" PUT "/api/v1/admin/users/$DEV_ID/teams" "{\"team_ids\":[\"$TEAM\"]}")" 403
+expect "owner adds members" "$(body "$OWNER" PUT "/api/v1/admin/teams/$TEAM/members" "{\"user_ids\":[\"$DEV_ID\",\"$ADMIN_ID\"]}" | jq '.member_ids | length')" 2
+TEAM_B=$(body "$OWNER" POST /api/v1/admin/teams "{\"name\":\"rbac-teamb-$RUN\",\"member_ids\":[\"$DEV_ID\"]}" | jq -r .id)
+expect "a user can be in several teams" "$(body "$OWNER" GET /api/v1/admin/users | jq --arg u "$DEV_ID" '[.items[] | select(.id==$u) | .team_ids[]] | length')" 2
+expect "developer sees team members" "$(body "$DEV2" GET /api/v1/admin/teams | jq --arg t "$TEAM_B" --arg u "$DEV_ID" '[.items[] | select(.id==$t) | .member_ids[]] | index($u) != null')" true
+expect "duplicate team name → 409" "$(code "$OWNER" POST /api/v1/admin/teams "{\"name\":\"RBAC-TEAMB-$RUN\"}")" 409
+code "$OWNER" DELETE "/api/v1/admin/teams/$TEAM_B" >/dev/null
 expect "owner renames team" "$(body "$OWNER" PATCH "/api/v1/admin/teams/$TEAM" "{\"name\":\"rbac-team2-$RUN\"}" | jq -r .name)" "rbac-team2-$RUN"
 expect "owner deletes team" "$(code "$OWNER" DELETE "/api/v1/admin/teams/$TEAM")" 204
 expect "ticket keeps existing without the team" "$(body "$OWNER" GET "/api/v1/admin/tickets/$TID" | jq -r .team_id)" null

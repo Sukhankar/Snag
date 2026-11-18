@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -10,12 +11,6 @@ import (
 	"github.com/snag/server/internal/broker"
 	"github.com/snag/server/internal/store"
 )
-
-// reporterToken reads the anonymous per-browser token that scopes "My Tickets".
-func reporterToken(r *http.Request) (string, bool) {
-	t := r.Header.Get("X-Reporter-Token")
-	return t, reporterTokenRe.MatchString(t)
-}
 
 type createTicketReq struct {
 	Title         string          `json:"title"`
@@ -32,9 +27,8 @@ type createTicketReq struct {
 // POST /api/v1/widget/tickets
 func (s *Server) widgetCreateTicket(w http.ResponseWriter, r *http.Request) {
 	project := projectFrom(r)
-	token, ok := reporterToken(r)
+	rep, ok := s.reporterFrom(w, r)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "reporter_token_required", "X-Reporter-Token must be 16-64 URL-safe characters")
 		return
 	}
 	var req createTicketReq
@@ -49,7 +43,7 @@ func (s *Server) widgetCreateTicket(w http.ResponseWriter, r *http.Request) {
 		Priority:      strings.TrimSpace(req.Priority),
 		ReporterName:  optional(req.ReporterName, 150),
 		ReporterEmail: optional(req.ReporterEmail, 150),
-		ReporterToken: token,
+		ReporterToken: rep.key,
 		AppVersion:    optional(req.AppVersion, 50),
 	}
 	if in.Category == "" {
@@ -100,7 +94,7 @@ func (s *Server) widgetCreateTicket(w http.ResponseWriter, r *http.Request) {
 	if summary, err := s.admin.GetSummary(r.Context(), created.ID); err == nil {
 		s.broker.Publish(broker.AdminTopic, "ticket.created", summary)
 	}
-	s.broker.Publish(broker.ReporterTopic(project.ID, token), "ticket.created", store.WidgetTicket{
+	s.broker.Publish(broker.ReporterTopic(project.ID, rep.key), "ticket.created", store.WidgetTicket{
 		Code: created.Code, Title: in.Title, Category: in.Category, Priority: in.Priority,
 		Status: created.Status, CreatedAt: created.CreatedAt, UpdatedAt: created.CreatedAt,
 	})
@@ -108,12 +102,11 @@ func (s *Server) widgetCreateTicket(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/widget/tickets
 func (s *Server) widgetListTickets(w http.ResponseWriter, r *http.Request) {
-	token, ok := reporterToken(r)
+	rep, ok := s.reporterFrom(w, r)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "reporter_token_required", "")
 		return
 	}
-	items, err := s.widget.ListTickets(r.Context(), projectFrom(r).ID, token)
+	items, err := s.widget.ListTickets(r.Context(), projectFrom(r).ID, rep.key)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -123,12 +116,11 @@ func (s *Server) widgetListTickets(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/widget/tickets/{code}
 func (s *Server) widgetGetTicket(w http.ResponseWriter, r *http.Request) {
-	token, ok := reporterToken(r)
+	rep, ok := s.reporterFrom(w, r)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "reporter_token_required", "")
 		return
 	}
-	d, err := s.widget.GetTicket(r.Context(), projectFrom(r).ID, token, chi.URLParam(r, "code"))
+	d, err := s.widget.GetTicket(r.Context(), projectFrom(r).ID, rep.key, chi.URLParam(r, "code"))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -144,9 +136,8 @@ type widgetMessageReq struct {
 // POST /api/v1/widget/tickets/{code}/messages
 func (s *Server) widgetPostMessage(w http.ResponseWriter, r *http.Request) {
 	project := projectFrom(r)
-	token, ok := reporterToken(r)
+	rep, ok := s.reporterFrom(w, r)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "reporter_token_required", "")
 		return
 	}
 	var req widgetMessageReq
@@ -163,14 +154,14 @@ func (s *Server) widgetPostMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, "validation_failed", err.Error())
 		return
 	}
-	aud, msg, reopened, err := s.widget.AddClientMessage(r.Context(), project.ID, token, chi.URLParam(r, "code"), body, atts)
+	aud, msg, reopened, err := s.widget.AddClientMessage(r.Context(), project.ID, rep.key, chi.URLParam(r, "code"), body, atts)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, msg)
 
-	s.broker.Publish(broker.ReporterTopic(project.ID, token), "message.created",
+	s.broker.Publish(broker.ReporterTopic(project.ID, rep.key), "message.created",
 		map[string]any{"ticket_code": aud.Code, "message": msg})
 	s.publishAdminMessage(r, aud, store.Message{
 		ID: msg.ID, TicketID: aud.TicketID, AuthorType: msg.AuthorType, Body: msg.Body, CreatedAt: msg.CreatedAt,
@@ -181,12 +172,34 @@ func (s *Server) widgetPostMessage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GET /api/v1/widget/stream?key=<project key>&token=<reporter token>
-func (s *Server) widgetStream(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
-	if !reporterTokenRe.MatchString(token) {
-		writeErr(w, http.StatusBadRequest, "reporter_token_required", "")
+// POST /api/v1/widget/stream-ticket — exchanges the reporter headers for a single-use ticket.
+func (s *Server) widgetStreamTicket(w http.ResponseWriter, r *http.Request) {
+	rep, ok := s.reporterFrom(w, r)
+	if !ok {
 		return
 	}
-	s.serveSSE(w, r, broker.ReporterTopic(projectFrom(r).ID, token), false)
+	id, ok := s.streams.issue(projectFrom(r).ID, rep)
+	if !ok {
+		writeErr(w, http.StatusServiceUnavailable, "busy", "try again shortly")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ticket": id, "expires_in": int(streamTicketTTL.Seconds())})
+}
+
+// GET /api/v1/widget/stream?key=<project key>&ticket=<stream ticket>
+// A stream opened with a signed identity ends when that identity expires; the widget then
+// needs a fresh token from the host application to reconnect.
+func (s *Server) widgetStream(w http.ResponseWriter, r *http.Request) {
+	project := projectFrom(r)
+	rep, ok := s.streams.take(r.URL.Query().Get("ticket"), project.ID)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "stream_ticket_invalid", "request a new ticket from POST /stream-ticket")
+		return
+	}
+	if rep.signed {
+		ctx, cancel := context.WithDeadline(r.Context(), rep.expires)
+		defer cancel()
+		r = r.WithContext(ctx)
+	}
+	s.serveSSE(w, r, broker.ReporterTopic(project.ID, rep.key), false)
 }

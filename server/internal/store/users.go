@@ -24,6 +24,8 @@ type User struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	// MustChangePassword is set when an admin chose the password (new account or reset).
 	MustChangePassword bool `json:"must_change_password"`
+	// TeamIDs: the teams the user belongs to (filled by ListUsers and GetUser).
+	TeamIDs []string `json:"team_ids,omitempty"`
 }
 
 type Role struct {
@@ -101,7 +103,12 @@ func (r *UserRepo) CreateOwner(ctx context.Context, email, name, hash string) (U
 }
 
 func (r *UserRepo) GetUser(ctx context.Context, id string) (User, error) {
-	return scanUser(r.pool.QueryRow(ctx, `SELECT `+userCols+` FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1`, id))
+	u, err := scanUser(r.pool.QueryRow(ctx, `SELECT `+userCols+` FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1`, id))
+	if err != nil {
+		return u, err
+	}
+	err = r.pool.QueryRow(ctx, `SELECT ARRAY(SELECT team_id::text FROM team_members WHERE user_id = $1 ORDER BY added_at)`, id).Scan(&u.TeamIDs)
+	return u, err
 }
 
 // UserForLogin returns the user and password hash by (case-insensitive) email.
@@ -135,9 +142,31 @@ func (r *UserRepo) ListUsers(ctx context.Context) ([]User, error) {
 		if err != nil {
 			return nil, err
 		}
+		u.TeamIDs = []string{}
 		out = append(out, u)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	teams := map[string][]string{}
+	mrows, err := r.pool.Query(ctx, `SELECT user_id::text, team_id::text FROM team_members ORDER BY added_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer mrows.Close()
+	for mrows.Next() {
+		var uid, tid string
+		if err := mrows.Scan(&uid, &tid); err != nil {
+			return nil, err
+		}
+		teams[uid] = append(teams[uid], tid)
+	}
+	for i := range out {
+		if ts := teams[out[i].ID]; ts != nil {
+			out[i].TeamIDs = ts
+		}
+	}
+	return out, mrows.Err()
 }
 
 func (r *UserRepo) Directory(ctx context.Context) ([]DirectoryEntry, error) {

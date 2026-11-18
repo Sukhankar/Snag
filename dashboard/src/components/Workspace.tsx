@@ -186,11 +186,24 @@ export function Workspace({ id, onBack, onOpen }: { id: string; onBack: () => vo
               <select className="select w-full" disabled={saving || !can('tickets.assign')} value={t.assignee_id ?? ''} onChange={(e) => update({ assignee_id: e.target.value || null })}>
                 <option value="">Unassigned</option>
                 {t.assignee_id && !people.some((p) => p.id === t.assignee_id) && <option value={t.assignee_id}>(inactive user)</option>}
-                {people.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
+                {(() => {
+                  // People in the ticket's team come first; everyone can still be chosen.
+                  const team = teams.find((tm) => tm.id === t.team_id);
+                  const opt = (p: (typeof people)[number]) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  );
+                  if (!team?.member_ids.length) return people.map(opt);
+                  const inTeam = people.filter((p) => team.member_ids.includes(p.id));
+                  const others = people.filter((p) => !team.member_ids.includes(p.id));
+                  return (
+                    <>
+                      {inTeam.length > 0 && <optgroup label={`${team.name} team`}>{inTeam.map(opt)}</optgroup>}
+                      {others.length > 0 && <optgroup label="Everyone else">{others.map(opt)}</optgroup>}
+                    </>
+                  );
+                })()}
               </select>
             </Field>
           </section>

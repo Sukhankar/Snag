@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end smoke test against a running Snag server.
 #   SNAG_URL=http://localhost:8080 ADMIN_TOKEN=... PROJECT_KEY=... ORIGIN=http://localhost:5173 ./scripts/smoke.sh
-# Requires: curl, jq, gzip, base64.
+# Requires: curl, jq, gzip, base64, openssl.
 set -uo pipefail
 
 URL=${SNAG_URL:-http://localhost:8080}
@@ -79,7 +79,10 @@ expect "attachment payload fetch" "$(curl -s "${A[@]}" "$URL/api/v1/admin/attach
 
 echo "== SSE + internal-note isolation"
 SSE_OUT=$(mktemp)
-curl -sN -H "Origin: $ORIGIN" "$URL/api/v1/widget/stream?key=$KEY&token=$TOKEN" >"$SSE_OUT" &
+expect "legacy ?token= stream refused" "$(code -H "Origin: $ORIGIN" "$URL/api/v1/widget/stream?key=$KEY&token=$TOKEN")" 401
+ST=$(curl -s -X POST "${W[@]}" "$URL/api/v1/widget/stream-ticket" | jq -r .ticket)
+[[ ${#ST} -eq 43 ]] && ok "stream ticket issued" || bad "stream ticket missing"
+curl -sN -H "Origin: $ORIGIN" "$URL/api/v1/widget/stream?key=$KEY&ticket=$ST" >"$SSE_OUT" &
 SSE_PID=$!
 ADMIN_SSE=$(mktemp)
 curl -sN "${A[@]}" "$URL/api/v1/admin/stream" >"$ADMIN_SSE" &
@@ -97,6 +100,7 @@ grep -q 'SECRET' <<<"$wdet" && bad "widget detail LEAKED internal note" || ok "w
 expect "widget sees public thread" "$(jq '.messages|length' <<<"$wdet")" 2
 expect "public reply auto-triaged" "$(jq -r .status <<<"$wdet")" triaged
 expect "other reporter can't read" "$(code -H "Origin: $ORIGIN" -H "X-Project-Key: $KEY" -H 'X-Reporter-Token: someone_else_token_123' "$URL/api/v1/widget/tickets/$CODE1")" 404
+expect "stream ticket is single-use" "$(code -H "Origin: $ORIGIN" "$URL/api/v1/widget/stream?key=$KEY&ticket=$ST")" 401
 rm -f "$SSE_OUT" "$ADMIN_SSE"
 
 echo "== duplicate linking + cascade resolution"
@@ -128,6 +132,53 @@ expect "bad origin rule → 422" "$(code -X POST "${A[@]}" -d '{"name":"x","allo
 NPID=$(jq -r .id <<<"$np")
 curl -s -o /dev/null -X PATCH "${A[@]}" -d '{"is_active":false}' "$URL/api/v1/admin/projects/$NPID"
 expect "deactivated project → 403" "$(code -H 'Origin: https://pos.example.com' -H "X-Project-Key: $NK" -H "X-Reporter-Token: $TOKEN" "$URL/api/v1/widget/tickets")" 403
+
+echo "== signed reporter identities"
+b64url() { base64 -w0 | tr '+/' '-_' | tr -d '='; }
+sign() { # secret project_key user_id expires
+  local sig; sig=$(printf 'snag-identity-v1\n%s\n%s\n%s' "$2" "$3" "$4" | openssl dgst -sha256 -hmac "$1" -binary | b64url)
+  printf 'v1.%s.%s.%s' "$(printf '%s' "$3" | b64url)" "$4" "$sig"
+}
+ip=$(curl -s -X POST "${A[@]}" -d "{\"name\":\"Smoke identity $TOKEN\",\"allowed_origins\":[\"$ORIGIN\"]}" "$URL/api/v1/admin/projects")
+IPID=$(jq -r .id <<<"$ip"); IK=$(jq -r .project_key <<<"$ip")
+expect "identity off by default" "$(jq -r .identity_enabled <<<"$ip")" false
+expect "require without secret → 409" "$(code -X PATCH "${A[@]}" -d '{"identity_required":true}' "$URL/api/v1/admin/projects/$IPID")" 409
+rot=$(curl -s -w '\n%{http_code}' -X POST "${A[@]}" "$URL/api/v1/admin/projects/$IPID/identity-secret")
+if [[ "$(tail -1 <<<"$rot")" == 409 ]]; then
+  echo "  (skipped: server has no SNAG_IDENTITY_KEY)"
+else
+  SECRET=$(head -1 <<<"$rot" | jq -r .secret)
+  [[ "$SECRET" == sis_* ]] && ok "secret shown once on generate" || bad "no secret returned"
+  expect "list never shows the secret" "$(curl -s "${A[@]}" "$URL/api/v1/admin/projects" | grep -c "$SECRET")" 0
+  EXP=$(( $(date +%s) + 3600 ))
+  ALICE=$(sign "$SECRET" "$IK" "cashier-alice" "$EXP")
+  BOB=$(sign "$SECRET" "$IK" "cashier-bob" "$EXP")
+  S=(-H "Origin: $ORIGIN" -H "X-Project-Key: $IK" -H "Content-Type: application/json")
+  res=$(curl -s -w '\n%{http_code}' -X POST "${S[@]}" -H "X-Reporter-Identity: $ALICE" -H "X-Reporter-Token: browser_one_123456" -d '{"title":"Signed report"}' "$URL/api/v1/widget/tickets")
+  expect "signed create → 201" "$(tail -1 <<<"$res")" 201
+  SC=$(head -1 <<<"$res" | jq -r .ticket_code)
+  # Another browser (different or no anonymous token), same user: same tickets.
+  expect "same user, other browser sees it" "$(curl -s "${S[@]}" -H "X-Reporter-Identity: $ALICE" -H "X-Reporter-Token: browser_two_abcdefg" "$URL/api/v1/widget/tickets" | jq -r '.items[0].ticket_code')" "$SC"
+  expect "other user can't read" "$(code "${S[@]}" -H "X-Reporter-Identity: $BOB" "$URL/api/v1/widget/tickets/$SC")" 404
+  expect "browser token alone can't read" "$(code "${S[@]}" -H "X-Reporter-Token: browser_one_123456" "$URL/api/v1/widget/tickets/$SC")" 404
+  TAMPER="v1.$(printf 'cashier-bob' | b64url).$(cut -d. -f3- <<<"$ALICE")"
+  expect "tampered user id → 401" "$(code "${S[@]}" -H "X-Reporter-Identity: $TAMPER" "$URL/api/v1/widget/tickets")" 401
+  expect "expired → 401" "$(code "${S[@]}" -H "X-Reporter-Identity: $(sign "$SECRET" "$IK" cashier-alice $(( $(date +%s) - 3600 )))" "$URL/api/v1/widget/tickets")" 401
+  expect "forever token → 401" "$(code "${S[@]}" -H "X-Reporter-Identity: $(sign "$SECRET" "$IK" cashier-alice $(( $(date +%s) + 90*86400 )))" "$URL/api/v1/widget/tickets")" 401
+  expect "other project's key → 401" "$(code "${S[@]}" -H "X-Reporter-Identity: $(sign "$SECRET" "$KEY" cashier-alice "$EXP")" "$URL/api/v1/widget/tickets")" 401
+  expect "bad identity never falls back → 401" "$(code "${S[@]}" -H "X-Reporter-Identity: v1.x.1.y" -H "X-Reporter-Token: browser_one_123456" "$URL/api/v1/widget/tickets")" 401
+  expect "anonymous still allowed" "$(code "${S[@]}" -H "X-Reporter-Token: browser_one_123456" "$URL/api/v1/widget/tickets")" 200
+  expect "require signed → 200" "$(code -X PATCH "${A[@]}" -d '{"identity_required":true}' "$URL/api/v1/admin/projects/$IPID")" 200
+  expect "anonymous refused when required" "$(code "${S[@]}" -H "X-Reporter-Token: browser_one_123456" "$URL/api/v1/widget/tickets")" 401
+  expect "anonymous stream ticket refused" "$(code -X POST "${S[@]}" -H "X-Reporter-Token: browser_one_123456" "$URL/api/v1/widget/stream-ticket")" 401
+  expect "signed still works" "$(code "${S[@]}" -H "X-Reporter-Identity: $ALICE" "$URL/api/v1/widget/tickets")" 200
+  curl -s -o /dev/null -X POST "${A[@]}" "$URL/api/v1/admin/projects/$IPID/identity-secret"
+  expect "rotation revokes old secret" "$(code "${S[@]}" -H "X-Reporter-Identity: $ALICE" "$URL/api/v1/widget/tickets")" 401
+  dis=$(curl -s -X DELETE "${A[@]}" "$URL/api/v1/admin/projects/$IPID/identity-secret")
+  expect "disable clears requirement" "$(jq -c '[.identity_enabled,.identity_required]' <<<"$dis")" "[false,false]"
+  expect "disabled → signed refused" "$(code "${S[@]}" -H "X-Reporter-Identity: $ALICE" "$URL/api/v1/widget/tickets")" 401
+fi
+curl -s -o /dev/null -X PATCH "${A[@]}" -d '{"is_active":false}' "$URL/api/v1/admin/projects/$IPID"
 
 echo "== rate limiting"
 if [[ -n "${EXPECT_CREATE_LIMIT:-}" ]]; then

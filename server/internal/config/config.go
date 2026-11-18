@@ -28,6 +28,12 @@ type Config struct {
 	// CreatePerMinute limits ticket submissions per project+IP (burst = half, min 5).
 	CreatePerMinute int
 
+	// IdentityKey is the server-only master key from which each project's identity secret
+	// (for signed reporter tokens) is derived. It never reaches the database, so a database
+	// leak alone cannot be used to forge reporter identities. Empty disables the feature.
+	// Changing it invalidates every project's identity secret.
+	IdentityKey string
+
 	// Optional demo tenant, created on start-up when DemoProjectKey is set.
 	DemoProjectKey     string
 	DemoProjectOrigins []string
@@ -43,6 +49,7 @@ func Load() (Config, error) {
 		OwnerName:          strings.TrimSpace(os.Getenv("SNAG_OWNER_NAME")),
 		TrustProxy:         env("SNAG_TRUST_PROXY", "false") == "true",
 		WidgetFile:         os.Getenv("SNAG_WIDGET_FILE"),
+		IdentityKey:        os.Getenv("SNAG_IDENTITY_KEY"),
 		MaxTicketBytes:     20 << 20,
 		CreatePerMinute:    10,
 		DemoProjectKey:     os.Getenv("SNAG_DEMO_PROJECT_KEY"),
@@ -67,6 +74,9 @@ func Load() (Config, error) {
 	}
 	if c.AdminToken != "" && len(c.AdminToken) < 24 {
 		return c, errors.New("SNAG_ADMIN_TOKEN must be at least 24 characters (or unset)")
+	}
+	if c.IdentityKey != "" && len(c.IdentityKey) < 32 {
+		return c, errors.New("SNAG_IDENTITY_KEY must be at least 32 characters (generate with: openssl rand -base64 48), or unset")
 	}
 	return c, nil
 }

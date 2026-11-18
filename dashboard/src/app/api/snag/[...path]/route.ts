@@ -15,9 +15,10 @@ const ID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const re = (s: string) => new RegExp(`^${s.replaceAll(':id', ID)}$`);
 const ALLOW: Record<string, RegExp[]> = {
   GET: ['tickets', 'tickets/:id', 'attachments/:id', 'projects', 'teams', 'stream', 'me', 'permissions', 'users', 'users/directory', 'roles', 'reports/amc'].map(re),
-  POST: ['tickets/:id/(messages|broadcast)', 'projects', 'teams', 'users', 'roles', 'me/password'].map(re),
+  POST: ['tickets/:id/(messages|broadcast)', 'projects', 'projects/:id/identity-secret', 'teams', 'users', 'roles', 'me/password'].map(re),
   PATCH: ['tickets/:id', 'projects/:id', 'teams/:id', 'users/:id', 'roles/:id'].map(re),
-  DELETE: ['roles/:id', 'teams/:id'].map(re),
+  PUT: ['teams/:id/members', 'users/:id/teams'].map(re),
+  DELETE: ['roles/:id', 'teams/:id', 'projects/:id/identity-secret'].map(re),
 };
 
 const json = (status: number, error: string) => Response.json({ error }, { status });
@@ -67,4 +68,4 @@ async function proxy(req: NextRequest, ctx: RouteContext<'/api/snag/[...path]'>)
   return new Response(res.status === 204 ? null : res.body, { status: res.status, headers });
 }
 
-export { proxy as GET, proxy as POST, proxy as PATCH, proxy as DELETE };
+export { proxy as GET, proxy as POST, proxy as PATCH, proxy as PUT, proxy as DELETE };

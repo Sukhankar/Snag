@@ -232,7 +232,7 @@ func projectFrom(r *http.Request) *cachedProject {
 
 const (
 	widgetAllowMethods = "GET, POST, OPTIONS"
-	widgetAllowHeaders = "Content-Type, X-Project-Key, X-Reporter-Token"
+	widgetAllowHeaders = "Content-Type, X-Project-Key, X-Reporter-Token, X-Reporter-Identity"
 )
 
 // OriginGuard authenticates widget traffic: X-Project-Key must name an active project and
@@ -265,8 +265,8 @@ func OriginGuard(cache *ProjectCache) func(http.Handler) http.Handler {
 			}
 
 			key := r.Header.Get("X-Project-Key")
-			// EventSource cannot send custom headers, so the stream endpoint alone accepts
-			// the key (and reporter token) as query parameters.
+			// EventSource cannot send custom headers, so the stream endpoint alone accepts the
+			// project key as a query parameter; the reporter is proven by a single-use ticket.
 			if key == "" && r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/stream") {
 				key = r.URL.Query().Get("key")
 			}

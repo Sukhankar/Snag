@@ -78,10 +78,17 @@ export const api = {
   attachment: (id: string) => call<AttachmentMeta & { payload_b64: string }>('attachments/' + id),
   projects: () => call<{ items: Project[] }>('projects').then((r) => r.items),
   createProject: (name: string, allowed_origins: string[]) => call<Project>('projects', { method: 'POST', body: { name, allowed_origins } }),
-  patchProject: (id: string, patch: { name?: string; allowed_origins?: string[]; is_active?: boolean; rotate_key?: boolean }) =>
+  patchProject: (id: string, patch: { name?: string; allowed_origins?: string[]; is_active?: boolean; rotate_key?: boolean; identity_required?: boolean }) =>
     call<Project>('projects/' + id, { method: 'PATCH', body: patch }),
+  /** Enables or rotates signed identities. The secret is returned once, here only. */
+  rotateIdentity: (id: string) => call<{ project: Project; secret: string }>(`projects/${id}/identity-secret`, { method: 'POST', body: {} }),
+  disableIdentity: (id: string) => call<Project>(`projects/${id}/identity-secret`, { method: 'DELETE' }),
   teams: () => call<{ items: Team[] }>('teams').then((r) => r.items),
-  createTeam: (name: string, description: string) => call<Team>('teams', { method: 'POST', body: { name, description } }),
+  createTeam: (name: string, description: string, member_ids: string[] = []) => call<Team>('teams', { method: 'POST', body: { name, description, member_ids } }),
+  /** Replaces a team's members. */
+  setTeamMembers: (id: string, user_ids: string[]) => call<Team>(`teams/${id}/members`, { method: 'PUT', body: { user_ids } }),
+  /** Replaces the teams a user belongs to. */
+  setUserTeams: (id: string, team_ids: string[]) => call<{ team_ids: string[] }>(`users/${id}/teams`, { method: 'PUT', body: { team_ids } }),
   patchTeam: (id: string, patch: { name?: string; description?: string }) => call<Team>('teams/' + id, { method: 'PATCH', body: patch }),
   deleteTeam: (id: string) => call<void>('teams/' + id, { method: 'DELETE' }),
   amcReport: (p: { from?: string; to?: string; project_id?: string }) => {

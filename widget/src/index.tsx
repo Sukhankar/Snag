@@ -5,6 +5,7 @@
 //           data-api="https://snag.example.com"   (default: the script's own origin)
 //           data-app-version="2.4.1"
 //           data-user-name="Jane" data-user-email="jane@acme.com"
+//           data-user-token="v1...."              (signed by YOUR server; see the docs)
 //           data-fab="false"                       (hotkey/API only, no floating button)
 //           data-mask-text="true"                  (don't record clicked element text)
 //           data-theme="light|dark"  data-accent="#0ea5e9"
@@ -12,8 +13,8 @@
 //
 // Or call window.Snag.init({...}) yourself. Alt+B toggles the panel.
 import { render } from 'preact';
-import { Api } from './api';
-import { App, type Bus, type Config } from './App';
+import { Api, validIdentity } from './api';
+import { App, type Bus, type Config, type Identity } from './App';
 import { css } from './styles';
 import { installTelemetry } from './telemetry';
 
@@ -21,7 +22,7 @@ export interface InitOptions {
   projectKey: string;
   api?: string;
   appVersion?: string;
-  user?: { name?: string; email?: string };
+  user?: { name?: string; email?: string; token?: string };
   fab?: boolean;
   maskText?: boolean;
   theme?: 'light' | 'dark';
@@ -33,11 +34,17 @@ const bus: Bus = {};
 let host: HTMLElement | null = null;
 let cfg: Config | null = null;
 let opts: InitOptions | null = null;
+let earlyToken: string | null | undefined; // identify({ token }) called before init
+
+const warnToken = () => console.warn('[snag] ignoring reporter token: expected "v1.<user>.<expires>.<signature>" from your server');
 
 function mount(o: InitOptions) {
   const api = new Api(o.api || (script?.src ? new URL(script.src).origin : location.origin), o.projectKey);
   installTelemetry(api.isOwn, () => host, !!o.maskText);
-  cfg = { api, fab: o.fab !== false, appVersion: o.appVersion, user: o.user || {} };
+  const token = earlyToken !== undefined ? earlyToken : o.user?.token;
+  if (token && !validIdentity(token)) warnToken();
+  api.setIdentity(token ?? null);
+  cfg = { api, fab: o.fab !== false, appVersion: o.appVersion, user: { name: o.user?.name, email: o.user?.email } };
 
   const attach = () => {
     host = document.createElement('snag-widget');
@@ -79,9 +86,21 @@ const Snag = {
   open: () => bus.toggle?.(true),
   close: () => bus.toggle?.(false),
   toggle: () => bus.toggle?.(),
-  /** Prefill reporter identity, e.g. after the host app's login. */
-  identify(user: { name?: string; email?: string }) {
-    if (cfg) cfg.user = { ...cfg.user, ...user };
+  /**
+   * Set the reporter after the host app's login (and clear it on logout).
+   * name/email are labels; token is a signed reporter token from the host app's server,
+   * which makes "My tickets" follow the user across browsers. token: null → anonymous.
+   */
+  identify(user: Identity) {
+    if (!user || typeof user !== 'object') return;
+    if (user.token && !validIdentity(user.token)) warnToken();
+    const { token, ...labels } = user;
+    if (cfg) cfg.user = { ...cfg.user, ...labels };
+    if (token !== undefined) {
+      if (cfg && !bus.identify) cfg.api.setIdentity(token); // mounted but not rendered yet
+      if (!cfg) earlyToken = token;
+    }
+    bus.identify?.(user); // update an already-rendered widget
   },
 };
 
@@ -99,7 +118,7 @@ if (!window.Snag) {
       projectKey: d.projectKey,
       api: d.api,
       appVersion: d.appVersion,
-      user: { name: d.userName, email: d.userEmail },
+      user: { name: d.userName, email: d.userEmail, token: d.userToken },
       fab: d.fab !== 'false',
       maskText: d.maskText === 'true',
       theme: d.theme === 'dark' || d.theme === 'light' ? d.theme : undefined,

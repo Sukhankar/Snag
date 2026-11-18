@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -347,6 +349,8 @@ type projectReq struct {
 	AllowedOrigins []string `json:"allowed_origins"`
 	IsActive       *bool    `json:"is_active"`
 	RotateKey      bool     `json:"rotate_key"`
+	// IdentityRequired: reject anonymous reporters (only while signed identities are enabled).
+	IdentityRequired *bool `json:"identity_required"`
 }
 
 func (s *Server) adminCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -382,7 +386,7 @@ func (s *Server) adminPatchProject(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, 64<<10, &req) {
 		return
 	}
-	patch := store.ProjectPatch{IsActive: req.IsActive, RotateKey: req.RotateKey}
+	patch := store.ProjectPatch{IsActive: req.IsActive, RotateKey: req.RotateKey, IdentityRequired: req.IdentityRequired}
 	if req.Name != nil {
 		n := clean(*req.Name)
 		if n == "" || runeLen(n) > 255 {
@@ -400,11 +404,58 @@ func (s *Server) adminPatchProject(w http.ResponseWriter, r *http.Request) {
 		patch.AllowedOrigins = origins
 	}
 	p, err := s.projects.Update(r.Context(), id, patch)
+	if errors.Is(err, store.ErrConflict) && req.IdentityRequired != nil {
+		writeErr(w, http.StatusConflict, "identity_not_enabled", "generate an identity secret before requiring signed-in reporters")
+		return
+	}
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
 	s.cache.Invalidate()
+	writeJSON(w, http.StatusOK, p)
+}
+
+// POST /api/v1/admin/projects/{id}/identity-secret — enable or rotate signed reporter
+// identities. The new secret is returned once, in this response only; the previous secret
+// stops working immediately.
+func (s *Server) adminRotateIdentity(w http.ResponseWriter, r *http.Request) {
+	id, ok := uuidParam(w, r, "id")
+	if !ok {
+		return
+	}
+	if s.cfg.IdentityKey == "" {
+		writeErr(w, http.StatusConflict, "identity_key_missing",
+			"set SNAG_IDENTITY_KEY (at least 32 random characters) on the Snag server to enable signed reporters")
+		return
+	}
+	p, err := s.projects.RotateIdentity(r.Context(), id)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	s.cache.Invalidate()
+	slog.Info("project identity secret rotated", "project_id", p.ID, "version", p.IdentityVersion, "by", me(r).ID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"project": p,
+		"secret":  deriveIdentitySecret(s.cfg.IdentityKey, p.ID, p.IdentityVersion),
+	})
+}
+
+// DELETE /api/v1/admin/projects/{id}/identity-secret — turn signed identities off. Signed-in
+// reporters fall back to anonymous browser tokens; the old secret can never be revived.
+func (s *Server) adminDisableIdentity(w http.ResponseWriter, r *http.Request) {
+	id, ok := uuidParam(w, r, "id")
+	if !ok {
+		return
+	}
+	p, err := s.projects.DisableIdentity(r.Context(), id)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	s.cache.Invalidate()
+	slog.Info("project identity disabled", "project_id", p.ID, "by", me(r).ID)
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -419,10 +470,11 @@ func (s *Server) adminListTeams(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) adminCreateTeam(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		MemberIDs   []string `json:"member_ids"`
 	}
-	if !decodeJSON(w, r, 16<<10, &req) {
+	if !decodeJSON(w, r, 64<<10, &req) {
 		return
 	}
 	name := clean(req.Name)
@@ -430,12 +482,90 @@ func (s *Server) adminCreateTeam(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, "validation_failed", "name is required (max 100 characters)")
 		return
 	}
-	t, err := s.projects.CreateTeam(r.Context(), name, optional(req.Description, 2000))
+	members, ok := idList(w, req.MemberIDs, "member_ids")
+	if !ok {
+		return
+	}
+	t, err := s.projects.CreateTeam(r.Context(), name, optional(req.Description, 2000), members)
+	if errors.Is(err, store.ErrConflict) {
+		writeErr(w, http.StatusConflict, "team_exists", "a team with this name already exists")
+		return
+	}
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
+}
+
+// idList validates a list of UUIDs (deduplicated, at most 1000).
+func idList(w http.ResponseWriter, ids []string, field string) ([]string, bool) {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.ToLower(strings.TrimSpace(id))
+		if !isUUID(id) {
+			writeErr(w, http.StatusUnprocessableEntity, "validation_failed", field+" must contain ids")
+			return nil, false
+		}
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	if len(out) > 1000 {
+		writeErr(w, http.StatusUnprocessableEntity, "validation_failed", "too many "+field)
+		return nil, false
+	}
+	return out, true
+}
+
+// PUT /api/v1/admin/teams/{id}/members {user_ids} — replaces the team's members.
+func (s *Server) adminSetTeamMembers(w http.ResponseWriter, r *http.Request) {
+	id, ok := uuidParam(w, r, "id")
+	if !ok {
+		return
+	}
+	var req struct {
+		UserIDs []string `json:"user_ids"`
+	}
+	if !decodeJSON(w, r, 64<<10, &req) {
+		return
+	}
+	users, ok := idList(w, req.UserIDs, "user_ids")
+	if !ok {
+		return
+	}
+	t, err := s.projects.SetTeamMembers(r.Context(), id, users)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+// PUT /api/v1/admin/users/{id}/teams {team_ids} — replaces the teams a user belongs to.
+func (s *Server) adminSetUserTeams(w http.ResponseWriter, r *http.Request) {
+	id, ok := uuidParam(w, r, "id")
+	if !ok {
+		return
+	}
+	var req struct {
+		TeamIDs []string `json:"team_ids"`
+	}
+	if !decodeJSON(w, r, 64<<10, &req) {
+		return
+	}
+	teams, ok := idList(w, req.TeamIDs, "team_ids")
+	if !ok {
+		return
+	}
+	out, err := s.projects.SetUserTeams(r.Context(), id, teams)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"team_ids": out})
 }
 
 // PATCH /api/v1/admin/teams/{id} {name?, description?}
@@ -469,6 +599,10 @@ func (s *Server) adminPatchTeam(w http.ResponseWriter, r *http.Request) {
 		desc = &d
 	}
 	t, err := s.projects.UpdateTeam(r.Context(), id, name, desc)
+	if errors.Is(err, store.ErrConflict) {
+		writeErr(w, http.StatusConflict, "team_exists", "a team with this name already exists")
+		return
+	}
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

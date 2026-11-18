@@ -12,9 +12,18 @@ export interface Config {
   user: { name?: string; email?: string };
 }
 
+export interface Identity {
+  name?: string;
+  email?: string;
+  /** Signed reporter token from the host app's server; null returns to the anonymous browser token. */
+  token?: string | null;
+}
+
 /** Lets the global hotkey and window.Snag drive the UI. */
 export interface Bus {
   toggle?: (open?: boolean) => void;
+  /** Pushes a new reporter identity into the form (Snag.identify after the widget rendered). */
+  identify?: (user: Identity) => void;
 }
 
 type Tab = 'new' | 'list' | 'thread';
@@ -75,6 +84,21 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
   const streamOff = useRef<(() => void) | null>(null);
 
   bus.toggle = (v) => setOpen((o) => v ?? !o);
+  bus.identify = (u) => {
+    if (u.name !== undefined) setName(u.name);
+    if (u.email !== undefined) setEmail(u.email);
+    // A different reporter: drop everything shown for the previous one and reconnect as the new one.
+    if (u.token !== undefined && api.setIdentity(u.token)) {
+      streamOff.current?.();
+      streamOff.current = null;
+      requestedThread.current = '';
+      setThread(null);
+      setTickets(null);
+      setUnread([]);
+      if (view.current.tab !== 'new') go('list');
+      if (api.signed || view.current.open || store('has:' + api.key)) connect();
+    }
+  };
 
   const navigation = useRef(0);
   const requestedThread = useRef('');
@@ -141,7 +165,7 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
   };
 
   useEffect(() => {
-    if (store('has:' + api.key)) connect();
+    if (api.signed || store('has:' + api.key)) connect();
     return () => { navigation.current++; threadRequest.current++; streamOff.current?.(); };
   }, []);
 
@@ -349,7 +373,11 @@ export function App({ cfg, bus }: { cfg: Config; bus: Bus }) {
             </select>
           </label>
         </div>
-        {!(cfg.user.name && cfg.user.email) && (
+        {cfg.user.name && cfg.user.email ? (
+          <span class="hint">
+            Reporting as {cfg.user.name} · {cfg.user.email}
+          </span>
+        ) : (
           <div class="row">
             <label>
               Name

@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { api, generatePassword } from '@/lib/client';
 import { relTime } from '@/lib/format';
-import type { Role, User } from '@/lib/types';
+import type { Role, Team, User } from '@/lib/types';
 import { useMe } from './me';
 
 // User management. Mirrors the server's rules so the UI only offers what will succeed:
@@ -29,11 +29,16 @@ export function Users() {
   const [creating, setCreating] = useState(false);
   const [credentials, setCredentials] = useState<{ title: string; email: string; password: string } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [editingTeams, setEditingTeams] = useState<string | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const manageTeams = me.permissions.includes('teams.manage');
 
   useEffect(() => {
     api.users().then(setUsers, (e) => setError(e.message));
     api.roles().then(setRoles, (e) => setError(e.message));
+    api.teams().then(setTeams, () => {});
   }, []);
+  const teamName = (id: string) => teams.find((t) => t.id === id)?.name;
 
   const assignable = roles.filter((r) => !r.is_system && subset(r.permissions, me.permissions));
   const canEdit = (u: User) => (u.is_owner ? me.is_owner : subset(u.permissions, me.permissions));
@@ -80,6 +85,7 @@ export function Users() {
         {creating && (
           <CreateUser
             roles={assignable}
+            teams={manageTeams ? teams : []}
             onCreated={(u, password) => {
               setUsers((us) => [...us, u]);
               setCreating(false);
@@ -95,6 +101,7 @@ export function Users() {
               <tr>
                 <th className="px-3 py-2 font-semibold">User</th>
                 <th className="px-3 py-2 font-semibold">Role</th>
+                <th className="px-3 py-2 font-semibold">Teams</th>
                 <th className="px-3 py-2 font-semibold">Status</th>
                 <th className="px-3 py-2 font-semibold">Last sign-in</th>
                 <th className="px-3 py-2 font-semibold">
@@ -149,6 +156,26 @@ export function Users() {
                       )}
                     </td>
                     <td className="px-3 py-2.5">
+                      <div className="flex max-w-[16rem] flex-wrap items-center gap-1">
+                        {(u.team_ids ?? []).map((id) => teamName(id) && (
+                          <span key={id} className="rounded bg-zinc-100 px-1.5 py-px text-[11px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                            {teamName(id)}
+                          </span>
+                        ))}
+                        {!(u.team_ids ?? []).length && <span className="text-[12px] text-zinc-600 dark:text-zinc-400">None</span>}
+                        {manageTeams && teams.length > 0 && (
+                          <button
+                            className="text-[12px] text-indigo-600 hover:underline dark:text-indigo-400"
+                            aria-label={`Change teams for ${u.name}`}
+                            aria-expanded={editingTeams === u.id}
+                            onClick={() => setEditingTeams((x) => (x === u.id ? null : u.id))}
+                          >
+                            Change
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5">
                       <span
                         className={`rounded px-1.5 py-px text-[11px] font-medium ${u.is_active ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700/50 dark:text-zinc-300'}`}
                       >
@@ -189,9 +216,28 @@ export function Users() {
                       )}
                     </td>
                   </tr>
+                  {editingTeams === u.id && (
+                    <tr>
+                      <td colSpan={6} className="bg-zinc-50 px-3 py-3 dark:bg-zinc-900/60">
+                        <TeamPicker
+                          teams={teams}
+                          initial={u.team_ids ?? []}
+                          label={`Teams for ${u.name}`}
+                          onCancel={() => setEditingTeams(null)}
+                          onSave={(ids) =>
+                            run(async () => {
+                              const r = await api.setUserTeams(u.id, ids);
+                              replace({ ...u, team_ids: r.team_ids });
+                              setEditingTeams(null);
+                            })
+                          }
+                        />
+                      </td>
+                    </tr>
+                  )}
                   {editing === u.id && (
                     <tr>
-                      <td colSpan={5} className="bg-zinc-50 px-3 py-3 dark:bg-zinc-900/60">
+                      <td colSpan={6} className="bg-zinc-50 px-3 py-3 dark:bg-zinc-900/60">
                         <EditUser
                           user={u}
                           onCancel={() => setEditing(null)}
@@ -227,7 +273,44 @@ export function Users() {
   );
 }
 
-function CreateUser({ roles, onCreated, onError }: { roles: Role[]; onCreated: (u: User, password: string) => void; onError: (m: string) => void }) {
+function TeamPicker({ teams, initial, label, onSave, onCancel }: { teams: Team[]; initial: string[]; label: string; onSave: (ids: string[]) => void; onCancel: () => void }) {
+  const [ids, setIds] = useState(initial);
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave(ids);
+      }}
+    >
+      <fieldset className="space-y-2">
+        <legend className="label">{label}</legend>
+        <TeamChecks teams={teams} ids={ids} setIds={setIds} />
+      </fieldset>
+      <div className="mt-2 flex gap-2">
+        <button className="btn-primary">Save teams</button>
+        <button type="button" className="btn" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function TeamChecks({ teams, ids, setIds }: { teams: Team[]; ids: string[]; setIds: (f: (ids: string[]) => string[]) => void }) {
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1">
+      {teams.map((t) => (
+        <label key={t.id} className="flex items-center gap-1.5 text-[13px]">
+          <input type="checkbox" checked={ids.includes(t.id)} onChange={(e) => setIds((x) => (e.target.checked ? [...x, t.id] : x.filter((y) => y !== t.id)))} />
+          {t.name}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function CreateUser({ roles, teams, onCreated, onError }: { roles: Role[]; teams: Team[]; onCreated: (u: User, password: string) => void; onError: (m: string) => void }) {
+  const [teamIds, setTeamIds] = useState<string[]>([]);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [roleId, setRoleId] = useState('');
@@ -247,7 +330,9 @@ function CreateUser({ roles, onCreated, onError }: { roles: Role[]; onCreated: (
         setBusy(true);
         onError('');
         try {
-          onCreated(await api.createUser({ name: name.trim(), email: email.trim(), role_id: roleId, password }), password);
+          const u = await api.createUser({ name: name.trim(), email: email.trim(), role_id: roleId, password });
+          if (teamIds.length) u.team_ids = (await api.setUserTeams(u.id, teamIds)).team_ids;
+          onCreated(u, password);
         } catch (err) {
           onError((err as Error).message);
         } finally {
@@ -284,6 +369,12 @@ function CreateUser({ roles, onCreated, onError }: { roles: Role[]; onCreated: (
         </div>
         <span className="block text-[11px] text-zinc-600 dark:text-zinc-400">At least 10 characters. They can change it under My account.</span>
       </label>
+      {teams.length > 0 && (
+        <fieldset className="space-y-1 sm:col-span-2">
+          <legend className="label">Teams (optional, any number)</legend>
+          <TeamChecks teams={teams} ids={teamIds} setIds={setTeamIds} />
+        </fieldset>
+      )}
       <div className="sm:col-span-2">
         <button className="btn-primary" disabled={busy || !roleId}>
           {busy ? 'Creating…' : 'Create user'}

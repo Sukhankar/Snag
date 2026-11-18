@@ -1,6 +1,6 @@
 # Snag website
 
-A product landing page, ten developer guides, and terms, privacy, and browser-storage notices. Legal pages direct questions to the project's GitHub issues. If you operate a commercial deployment, have the operator name, jurisdiction and contacts reviewed and added.
+A product landing page, eleven developer guides, and terms, privacy, and browser-storage notices. Legal pages direct questions to the project's GitHub issues. If you operate a commercial deployment, have the operator name, jurisdiction and contacts reviewed and added.
 
 ## Run locally
 

@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/client';
-import type { Project, Team } from '@/lib/types';
+import type { Project } from '@/lib/types';
 import { useCan } from './me';
 
-// Tenant management: project keys, CORS origin whitelist, embed snippet, teams.
+// Tenant management: project keys, CORS origin whitelist, embed snippet, signed reporters.
 
 const parseOrigins = (s: string) =>
   s
@@ -22,18 +22,15 @@ function snippet(p: Project, apiUrl: string) {
 
 export function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [teams, setTeams] = useState<Team[]>([]);
   const [error, setError] = useState('');
   const [name, setName] = useState('');
   const [origins, setOrigins] = useState('');
-  const [teamName, setTeamName] = useState('');
   const [apiUrl, setApiUrl] = useState('https://snag.example.com');
   const can = useCan();
   const manage = can('projects.manage');
 
   useEffect(() => {
     api.projects().then(setProjects, (e) => setError(e.message));
-    api.teams().then(setTeams, () => {});
     setApiUrl(localStorage.getItem('snag:apiUrl') || 'https://snag.example.com');
   }, []);
 
@@ -104,64 +101,13 @@ export function Projects() {
           ))}
         </ul>
 
-        <section className="space-y-3">
-          <h2 className="font-semibold">Teams</h2>
-          <ul className="flex flex-wrap gap-2">
-            {teams.map((t) => (
-              <li key={t.id} className="flex items-center gap-2 rounded-md border border-zinc-200 px-2.5 py-1 dark:border-zinc-800">
-                <span>{t.name}</span>
-                {can('teams.manage') && (
-                  <span className="flex gap-1.5 text-[11px]">
-                    <button
-                      className="text-indigo-600 dark:text-indigo-400 hover:underline"
-                      aria-label={`Rename team ${t.name}`}
-                      onClick={() => {
-                        const name = prompt('Team name', t.name)?.trim();
-                        if (!name || name === t.name) return;
-                        run(async () => {
-                          const saved = await api.patchTeam(t.id, { name });
-                          setTeams((ts) => ts.map((x) => (x.id === t.id ? saved : x)));
-                        });
-                      }}
-                    >
-                      Rename
-                    </button>
-                    <button
-                      className="text-red-600 hover:underline"
-                      aria-label={`Delete team ${t.name}`}
-                      onClick={() => {
-                        if (!confirm(`Delete the team "${t.name}"? Its tickets keep everything except the team.`)) return;
-                        run(async () => {
-                          await api.deleteTeam(t.id);
-                          setTeams((ts) => ts.filter((x) => x.id !== t.id));
-                        });
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </span>
-                )}
-              </li>
-            ))}
-            {teams.length === 0 && <li className="text-zinc-600 dark:text-zinc-400">No teams yet.</li>}
-          </ul>
-          {can('teams.manage') && (
-          <form
-            className="flex max-w-sm gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              run(async () => {
-                const t = await api.createTeam(teamName.trim(), '');
-                setTeams((ts) => [...ts, t]);
-                setTeamName('');
-              });
-            }}
-          >
-            <input className="input" required placeholder="e.g. POS Core" value={teamName} onChange={(e) => setTeamName(e.target.value)} aria-label="Team name" />
-            <button className="btn shrink-0">Add team</button>
-          </form>
-          )}
-        </section>
+        <p className="text-[12px] text-zinc-600 dark:text-zinc-400">
+          Teams and their members are managed on the{' '}
+          <a className="text-indigo-600 hover:underline dark:text-indigo-400" href="/teams">
+            Teams
+          </a>{' '}
+          page.
+        </p>
       </div>
     </div>
   );
@@ -222,6 +168,99 @@ function ProjectCard({ p, apiUrl, manage, onChange, run }: { p: Project; apiUrl:
           </button>
         </label>
       </div>
+      <Identity p={p} manage={manage} onChange={onChange} run={run} />
     </li>
+  );
+}
+
+// Signed reporter identities: the host app's server signs its user id with this secret, so a
+// reporter keeps their tickets across browsers, devices and cleared data. The secret is shown
+// once, right after it is generated, and must only ever live in the host app's server env.
+function Identity({ p, manage, onChange, run }: { p: Project; manage: boolean; onChange: (p: Project) => void; run: (fn: () => Promise<unknown>) => void }) {
+  const [secret, setSecret] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const rotate = () => {
+    const ask = p.identity_enabled
+      ? `Rotate the identity secret for ${p.name}? The current secret stops working immediately: signed-in reporters get an error until the app's server has the new secret.`
+      : `Turn on signed reporters for ${p.name}? You will see the secret once.`;
+    if (!confirm(ask)) return;
+    run(async () => {
+      const r = await api.rotateIdentity(p.id);
+      setSecret(r.secret);
+      onChange(r.project);
+    });
+  };
+
+  return (
+    <section className="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800" aria-label={`Signed reporters for ${p.name}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="label">Signed reporters</span>
+        <span className={`rounded px-1.5 text-[11px] ${p.identity_enabled ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-zinc-200 dark:bg-zinc-800'}`}>
+          {p.identity_enabled ? (p.identity_required ? 'On · required' : 'On') : 'Off'}
+        </span>
+        {p.identity_rotated_at && <span className="text-[12px] text-zinc-600 dark:text-zinc-400">secret from {new Date(p.identity_rotated_at).toLocaleString()}</span>}
+        <div className={manage ? 'ml-auto flex flex-wrap gap-2' : 'hidden'}>
+          <button className="btn" onClick={rotate}>
+            {p.identity_enabled ? 'Rotate secret' : 'Generate secret'}
+          </button>
+          {p.identity_enabled && (
+            <>
+              <button
+                className="btn"
+                aria-pressed={p.identity_required}
+                onClick={() => {
+                  if (!p.identity_required && !confirm('Require signed reporters? People who are not signed in to the app (login screens, public pages) can no longer send reports.')) return;
+                  run(async () => onChange(await api.patchProject(p.id, { identity_required: !p.identity_required })));
+                }}
+              >
+                {p.identity_required ? 'Allow anonymous' : 'Require signed'}
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  if (confirm(`Turn off signed reporters for ${p.name}? The secret is destroyed; reporters fall back to per-browser tickets.`)) {
+                    setSecret('');
+                    run(async () => onChange(await api.disableIdentity(p.id)));
+                  }
+                }}
+              >
+                Turn off
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      <p className="mt-1 text-[12px] text-zinc-600 dark:text-zinc-400">
+        {p.identity_enabled
+          ? "Reporters signed by the app's server keep their tickets on any browser or device. Anonymous browser tokens " + (p.identity_required ? 'are refused.' : 'still work for people who are not signed in.')
+          : 'Off: tickets are tied to the browser that sent them. Turn on to tie them to the signed-in user of the app.'}
+      </p>
+      {secret && (
+        <div role="alert" className="mt-2 space-y-2 rounded border border-amber-300 bg-amber-50 p-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+          <p className="font-medium text-amber-900 dark:text-amber-200">Copy this secret now. It will not be shown again.</p>
+          <div className="flex gap-2">
+            <code className="flex-1 truncate rounded bg-white px-2 py-1.5 font-mono text-[12px] dark:bg-zinc-950">{secret}</code>
+            <button
+              className="btn"
+              onClick={() =>
+                navigator.clipboard.writeText(secret).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                })
+              }
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <p className="text-[12px] text-amber-900 dark:text-amber-200">
+            Put it in the app&apos;s <strong>server</strong> environment (for example SNAG_IDENTITY_SECRET). Never in browser code, a NEXT_PUBLIC_ variable, a repository or a chat.
+          </p>
+          <button className="btn" onClick={() => setSecret('')}>
+            I have stored it
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
